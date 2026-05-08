@@ -1,0 +1,30 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+.history/
+
+# Tilt
+.tiltbuild/
+tilt_modules/
+
+# Env files
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Backend
+backend/bin/
+backend/coverage.txt
+
+# Frontend (Remix)
+frontend/node_modules/
+frontend/build/
+frontend/.cache/
+frontend/public/build/
+frontend/.env
