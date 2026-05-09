@@ -30,6 +30,7 @@
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.17.0",
 		"globals": "^17.4.0",
+		"lint-staged": "^17.0.3",
 		"playwright": "^1.59.1",
 		"prettier": "^3.8.1",
 		"prettier-plugin-svelte": "^3.5.1",
@@ -45,5 +46,9 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.105.4"
+	},
+	"lint-staged": {
+		"*.{js,ts,svelte,json,md,css,html,mjs,cjs,yaml,yml}": "prettier --write",
+		"*.{js,ts,svelte,mjs,cjs}": "eslint --fix"
 	}
 }

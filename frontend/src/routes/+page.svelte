@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { auth } from '$lib/auth.svelte'
-	import { apiFetch, ApiError } from '$lib/api'
-	import { goto } from '$app/navigation'
+	import { auth } from '$lib/auth.svelte';
+	import { apiFetch, ApiError } from '$lib/api';
+	import { goto } from '$app/navigation';
 
-	type MeResponse = { id: string; email: string }
+	type MeResponse = { id: string; email: string };
 
-	let me = $state<MeResponse | null>(null)
-	let error = $state<string | null>(null)
+	let me = $state<MeResponse | null>(null);
+	let error = $state<string | null>(null);
 
 	// Once auth has resolved, redirect to /login if there's no user.
 	$effect(() => {
-		if (!auth.loading && !auth.user) goto('/login')
-	})
+		if (!auth.loading && !auth.user) goto('/login');
+	});
 
 	// When we have a user, hit the Go backend's /v1/me to confirm the
 	// end-to-end auth flow (browser → Bearer token → Go OIDC verify → UpsertUser).
@@ -20,14 +20,14 @@
 			apiFetch<MeResponse>('/v1/me')
 				.then((res) => (me = res))
 				.catch((e) => {
-					error = e instanceof ApiError ? e.message : String(e)
-				})
+					error = e instanceof ApiError ? e.message : String(e);
+				});
 		}
-	})
+	});
 
 	async function handleSignOut() {
-		await auth.signOut()
-		goto('/login')
+		await auth.signOut();
+		goto('/login');
 	}
 </script>
 

@@ -28,3 +28,4 @@ frontend/build/
 frontend/.cache/
 frontend/public/build/
 frontend/.env
+node_modules/

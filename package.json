@@ -1,0 +1,11 @@
+{
+	"name": "trove",
+	"private": true,
+	"description": "Top-level package.json — exists solely to host husky for git hooks. The actual frontend project lives in ./frontend with its own package.json (where lint-staged + prettier + eslint configs are).",
+	"scripts": {
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"husky": "^9.1.7"
+	}
+}
