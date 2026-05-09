@@ -37,11 +37,10 @@ local_resource(
   ignore=['backend/bin']
 )
 
-# Frontend resource — uncomment after running `npx create-remix@latest .` inside frontend/
-# local_resource(
-#   'frontend',
-#   cmd='cd frontend && npm install',
-#   serve_cmd='cd frontend && npm run dev',
-#   deps=['frontend/package.json'],
-#   ignore=['frontend/node_modules', 'frontend/build', 'frontend/.cache', 'frontend/public/build']
-# )
+local_resource(
+  'frontend',
+  cmd='cd frontend && bun install',
+  serve_cmd='cd frontend && bun run dev',
+  deps=['frontend/package.json'],
+  ignore=['frontend/node_modules', 'frontend/build', 'frontend/.cache', 'frontend/.svelte-kit']
+)
