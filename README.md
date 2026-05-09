@@ -1,6 +1,8 @@
-# Trove
+# Trove 
 
 > A cozy little place to keep your projects, ideas, and the things you're chasing — built to play nicely with Claude and other AI tools.
+
+**Very early WIP - status: scaffolding only**
 
 ## Stack
 
