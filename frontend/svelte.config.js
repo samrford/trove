@@ -1,4 +1,4 @@
-import adapter from '@sveltejs/adapter-auto';
+import adapter from '@sveltejs/adapter-static'
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -7,11 +7,17 @@ const config = {
 		runes: ({ filename }) => (filename.split(/[/\\]/).includes('node_modules') ? undefined : true)
 	},
 	kit: {
-		// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
-		// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
-		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
-		adapter: adapter()
+		// Static SPA build. Every unmatched route falls back to index.html and the
+		// SvelteKit client router takes over. Required because `+layout.ts` sets
+		// `ssr = false` — Trove is a pure SPA, served as static files behind nginx.
+		adapter: adapter({
+			pages: 'build',
+			assets: 'build',
+			fallback: 'index.html',
+			precompress: false,
+			strict: true
+		})
 	}
-};
+}
 
-export default config;
+export default config

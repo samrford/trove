@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type (patch=bugfixes, minor=new features, major=breaking)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  bump-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.compute_version.outputs.new_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute new version
+        id: compute_version
+        run: |
+          # Latest tag, default v0.0.0 if none.
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION=${LATEST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          case "${{ inputs.bump_type }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Bumping $LATEST_TAG → v$NEW_VERSION"
+
+      - name: Update frontend/package.json
+        working-directory: ./frontend
+        run: |
+          # `npm version --no-git-tag-version` only edits package.json's version
+          # field; it doesn't touch the lockfile. Pre-installed Node + npm on
+          # GitHub runners means no install needed even though the project uses bun.
+          npm version ${{ steps.compute_version.outputs.new_version }} --no-git-tag-version
+
+      - name: Commit and push version bump
+        run: |
+          git add frontend/package.json
+          git commit -m "chore: release v${{ steps.compute_version.outputs.new_version }}"
+          git remote set-url origin https://x-access-token:${{ secrets.RELEASE_PAT }}@github.com/${{ github.repository }}
+          git push origin HEAD
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          gh release create "v${{ steps.compute_version.outputs.new_version }}" \
+            --title "v${{ steps.compute_version.outputs.new_version }}" \
+            --generate-notes
+
+  deploy:
+    name: Deploy all services
+    needs: bump-and-release
+    uses: ./.github/workflows/deploy.yml
+    with:
+      target: all
+      app_version: ${{ needs.bump-and-release.outputs.new_version }}
+    secrets:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

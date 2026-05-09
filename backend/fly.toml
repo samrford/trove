@@ -1,4 +1,4 @@
-app = 'trove-backend'
+app = 'trove-back'
 primary_region = 'lhr'
 
 [build]
