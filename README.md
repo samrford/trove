@@ -24,3 +24,7 @@ tilt up
 ```
 
 Ports: frontend `:3003`, backend `:8082`, Postgres `:5434`, MinIO `:9000` (S3 API) / `:9001` (web console).
+
+## Git hooks
+
+A `pre-commit` hook auto-formats staged frontend files (husky + lint-staged). It activates on `bun install` at the repo root — the top-level `package.json` exists solely for this.
