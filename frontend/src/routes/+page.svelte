@@ -1,66 +1,104 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
-	import { apiFetch, ApiError } from '$lib/api';
+	import { listProjects, type Project } from '$lib/api/projects';
+	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
+	import AppHeader from '$lib/components/AppHeader.svelte';
+	import { projectColourVar } from '$lib/projectColours';
+	import { Plus } from '@lucide/svelte';
 
-	type MeResponse = { id: string; email: string };
-
-	let me = $state<MeResponse | null>(null);
+	let projects = $state<Project[] | null>(null);
 	let error = $state<string | null>(null);
 
-	// Once auth has resolved, redirect to /login if there's no user.
 	$effect(() => {
 		if (!auth.loading && !auth.user) goto('/login');
 	});
 
-	// When we have a user, hit the Go backend's /v1/me to confirm the
-	// end-to-end auth flow (browser → Bearer token → Go OIDC verify → UpsertUser).
 	$effect(() => {
-		if (auth.user) {
-			apiFetch<MeResponse>('/v1/me')
-				.then((res) => (me = res))
+		if (auth.user && projects === null) {
+			listProjects()
+				.then((res) => (projects = res))
 				.catch((e) => {
 					error = e instanceof ApiError ? e.message : String(e);
 				});
 		}
 	});
 
-	async function handleSignOut() {
-		await auth.signOut();
-		goto('/login');
+	function formatDate(iso: string): string {
+		return new Date(iso).toLocaleDateString(undefined, {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric'
+		});
 	}
 </script>
 
-<div class="mx-auto max-w-2xl p-8">
-	<h1 class="mb-2 text-3xl font-bold">Trove</h1>
-	<p class="mb-8 text-gray-600">Welcome to Trove!</p>
-
-	{#if auth.loading}
-		<p class="text-gray-500">Loading…</p>
-	{:else if !auth.user}
-		<p class="text-gray-500">Redirecting to /login…</p>
-	{:else}
-		<div class="mb-4 rounded border p-6">
-			<p class="mb-1 text-sm text-gray-500">Logged in as</p>
-			<p class="text-lg">{auth.user.email}</p>
+{#if !auth.loading && auth.user}
+	<AppHeader />
+	<main class="mx-auto max-w-5xl px-6 py-10">
+		<div class="mb-8 flex items-center justify-between">
+			<div>
+				<h1 class="text-2xl font-semibold tracking-tight text-fg">Your trove</h1>
+				<p class="mt-1 text-sm text-fg-muted">Projects you own or have been invited to.</p>
+			</div>
+			<a
+				href="/projects/new"
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+			>
+				<Plus class="h-4 w-4" />
+				New project
+			</a>
 		</div>
 
-		{#if me}
-			<div class="mb-4 rounded border p-6">
-				<p class="mb-2 text-sm text-gray-500">/v1/me from the Go backend</p>
-				<pre class="text-sm">{JSON.stringify(me, null, 2)}</pre>
+		{#if error}
+			<div class="mb-4 rounded-md border border-danger/40 bg-danger/10 p-4">
+				<p class="text-sm text-danger">{error}</p>
 			</div>
-		{:else if error}
-			<div class="mb-4 rounded border border-red-300 bg-red-50 p-6">
-				<p class="mb-2 text-sm text-red-700">Error from backend</p>
-				<pre class="text-sm">{error}</pre>
-			</div>
-		{:else}
-			<p class="text-gray-500">Calling /v1/me…</p>
 		{/if}
 
-		<button onclick={handleSignOut} class="mt-4 text-sm text-gray-500 hover:underline">
-			Sign out
-		</button>
-	{/if}
-</div>
+		{#if projects === null && !error}
+			<p class="text-sm text-fg-faint">Loading…</p>
+		{:else if projects && projects.length === 0}
+			<div class="rounded-lg border border-line bg-card p-12 text-center">
+				<p class="text-fg-muted">Your trove is empty — toss something in.</p>
+				<a
+					href="/projects/new"
+					class="mt-4 inline-block text-sm text-accent hover:text-accent-hover hover:underline"
+				>
+					Create your first project →
+				</a>
+			</div>
+		{:else if projects}
+			<ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				{#each projects as project (project.id)}
+					<li>
+						<a
+							href={`/projects/${project.slug}`}
+							class="relative block overflow-hidden rounded-lg border border-line bg-card p-5 pl-6 transition hover:border-line-strong"
+						>
+							<span
+								aria-hidden="true"
+								class="absolute top-0 bottom-0 left-0 w-1.5"
+								style:background-color={projectColourVar(project.colour)}
+							></span>
+							<div class="flex items-start gap-3">
+								{#if project.icon}
+									<span class="text-2xl leading-none">{project.icon}</span>
+								{/if}
+								<div class="min-w-0 flex-1">
+									<h2 class="truncate font-semibold text-fg">{project.name}</h2>
+									{#if project.description}
+										<p class="mt-1 line-clamp-2 text-sm text-fg-muted">{project.description}</p>
+									{/if}
+									<p class="mt-3 text-xs text-fg-faint">
+										Updated {formatDate(project.updated_at)}
+									</p>
+								</div>
+							</div>
+						</a>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</main>
+{/if}

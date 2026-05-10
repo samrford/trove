@@ -45,6 +45,7 @@
 		"vitest-browser-svelte": "^2.1.0"
 	},
 	"dependencies": {
+		"@lucide/svelte": "^1.14.0",
 		"@supabase/supabase-js": "^2.105.4"
 	},
 	"lint-staged": {

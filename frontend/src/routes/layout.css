@@ -1,3 +1,92 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
+
+/* Inter — body face */
+@import url('https://rsms.me/inter/inter.css');
+
+/*
+ * Trove's palette: warm-parchment (light) ↔ obsidian (dark).
+ *
+ */
+
+:root {
+	color-scheme: light;
+}
+
+:root.theme-dark {
+	color-scheme: dark;
+}
+
+:root {
+	/* Per-project accents — used inline via `var(--color-project-*)` in
+	 * components, *not* as Tailwind utilities, so they live in :root rather
+	 * than @theme inline (which only inlines values into generated classes
+	 * and doesn't emit raw CSS variables). Each adapts via light-dark(). */
+	--color-project-gold: light-dark(oklch(70% 0.13 75), oklch(78% 0.13 75));
+	--color-project-teal: light-dark(oklch(55% 0.1 195), oklch(72% 0.11 195));
+	--color-project-moss: light-dark(oklch(58% 0.13 145), oklch(72% 0.14 145));
+	--color-project-rust: light-dark(oklch(58% 0.17 35), oklch(72% 0.16 35));
+	--color-project-plum: light-dark(oklch(52% 0.13 340), oklch(72% 0.12 340));
+	--color-project-slate: light-dark(oklch(55% 0.04 240), oklch(72% 0.04 240));
+}
+
+@theme inline {
+	/* surfaces */
+	--color-app: light-dark(oklch(98% 0.013 80), oklch(15% 0.012 240));
+	--color-card: light-dark(oklch(99.5% 0.005 80), oklch(19% 0.014 240));
+	--color-card-2: light-dark(oklch(96% 0.014 80), oklch(23% 0.018 240));
+
+	/* lines */
+	--color-line: light-dark(oklch(89% 0.018 75), oklch(30% 0.022 240));
+	--color-line-strong: light-dark(oklch(75% 0.025 70), oklch(45% 0.028 235));
+
+	/* text */
+	--color-fg: light-dark(oklch(25% 0.02 60), oklch(92% 0.018 70));
+	--color-fg-muted: light-dark(oklch(50% 0.02 60), oklch(68% 0.018 65));
+	--color-fg-faint: light-dark(oklch(65% 0.018 60), oklch(50% 0.018 65));
+
+	/* warm gold — the trove accent */
+	--color-accent: light-dark(oklch(60% 0.13 75), oklch(75% 0.13 75));
+	--color-accent-hover: light-dark(oklch(53% 0.14 75), oklch(80% 0.14 75));
+	--color-on-accent: light-dark(oklch(99% 0.005 80), oklch(15% 0.02 60));
+
+	/* moss / warm red */
+	--color-success: light-dark(oklch(58% 0.13 145), oklch(72% 0.15 145));
+	--color-danger: light-dark(oklch(55% 0.18 25), oklch(70% 0.18 25));
+
+	/* type */
+	--font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+	--font-display: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+	background-color: var(--color-app);
+	color: var(--color-fg);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* Atmospheric gradient layered over the solid bg colour. Stays put on scroll
+ * (background-attachment: fixed) so the lighting feels like the room you're
+ * sitting in, not something painted onto the document. */
+body {
+	min-height: 100vh;
+	background-attachment: fixed;
+	/* Light: a faint warmer wash near the top — like sunlight through a window. */
+	background-image: radial-gradient(
+		ellipse 90% 50% at 50% 0%,
+		oklch(95% 0.05 80 / 0.5),
+		transparent 70%
+	);
+}
+
+:root.theme-dark body {
+	/* Dark: warm gold halo from above + cool depth at the bottom. The vibe
+	 * we settled on in DECISIONS.md — "treasure chest in a dim room". */
+	background-image:
+		radial-gradient(ellipse 100% 60% at 50% -5%, oklch(45% 0.13 75 / 0.32), transparent 65%),
+		radial-gradient(ellipse 60% 50% at 100% 110%, oklch(28% 0.07 270 / 0.45), transparent 70%);
+}

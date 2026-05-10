@@ -4,6 +4,31 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<script>
+			// Apply theme preference before CSS loads to prevent flash of wrong theme.
+			// Mirrors the logic in lib/theme.svelte.ts; kept tiny + dependency-free
+			// because it has to run inline.
+			(function () {
+				try {
+					var stored = localStorage.getItem('trove-theme');
+					var pref = stored === 'light' || stored === 'dark' ? stored : 'system';
+					var resolved = pref;
+					if (pref === 'system') {
+						resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+					}
+					document.documentElement.classList.add('theme-' + resolved);
+				} catch (e) {
+					// localStorage unavailable — fall back to "system" by adding the
+					// class that matches the current OS preference.
+					try {
+						var sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+						document.documentElement.classList.add(sysDark ? 'theme-dark' : 'theme-light');
+					} catch (_) {
+						document.documentElement.classList.add('theme-light');
+					}
+				}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
