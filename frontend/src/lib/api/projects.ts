@@ -50,10 +50,9 @@ export type ProjectUpdate = {
 export type SlugCheck = { available: boolean; reason?: 'invalid' };
 
 export function checkSlug(slug: string, signal?: AbortSignal): Promise<SlugCheck> {
-	return apiFetch<SlugCheck>(
-		`/v1/projects/check-slug?slug=${encodeURIComponent(slug)}`,
-		{ signal }
-	);
+	return apiFetch<SlugCheck>(`/v1/projects/check-slug?slug=${encodeURIComponent(slug)}`, {
+		signal
+	});
 }
 
 export function updateProject(slugOrID: string, input: ProjectUpdate): Promise<Project> {
