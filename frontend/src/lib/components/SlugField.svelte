@@ -121,7 +121,8 @@
 				type="button"
 				onclick={() => (value = suggestion)}
 				class="font-mono font-medium underline underline-offset-2 hover:opacity-80"
-			>{suggestion}</button>?
+				>{suggestion}</button
+			>?
 		</p>
 	{/if}
 </div>

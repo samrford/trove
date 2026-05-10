@@ -32,10 +32,7 @@
 			class:border-line={!open}
 		>
 			{#if value}
-				<span
-					class="h-6 w-6 rounded-full"
-					style:background-color={projectColourVar(value)}
-				></span>
+				<span class="h-6 w-6 rounded-full" style:background-color={projectColourVar(value)}></span>
 			{:else}
 				<span class="flex h-6 w-6 items-center justify-center text-xs text-fg-faint">—</span>
 			{/if}

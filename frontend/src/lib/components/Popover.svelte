@@ -52,7 +52,7 @@
 			bind:this={popoverEl}
 			role="dialog"
 			aria-label={label}
-			class="absolute left-0 top-full z-20 mt-2 rounded-md border border-line bg-card p-2 shadow-lg"
+			class="absolute top-full left-0 z-20 mt-2 rounded-md border border-line bg-card p-2 shadow-lg"
 		>
 			{@render children({ close })}
 		</div>
