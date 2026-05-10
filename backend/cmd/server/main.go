@@ -54,6 +54,8 @@ func main() {
 		return corsMiddleware(handlers.AuthMiddleware(verifier, db, h))
 	}
 
+	projectsHandler := handlers.NewProjectsHandler(db)
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v1/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +65,11 @@ func main() {
 
 	mux.HandleFunc("/v1/me", authed(handlers.HandleMe))
 
-	// TODO: register handlers as they're built — projects, items, groups, tags, attachments, activity, events (SSE).
+	mux.HandleFunc("/v1/projects", authed(projectsHandler.HandleCollection))
+	mux.HandleFunc("/v1/projects/check-slug", authed(projectsHandler.HandleCheckSlug))
+	mux.HandleFunc("/v1/projects/", authed(projectsHandler.HandleByID))
+
+	// TODO: register remaining handlers — items, groups, tags, attachments, activity, events (SSE).
 
 	mux.HandleFunc("/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

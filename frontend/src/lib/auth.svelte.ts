@@ -48,3 +48,24 @@ class AuthState {
 }
 
 export const auth = new AuthState();
+
+// Display helpers — pull the friendliest value out of Supabase's user_metadata
+// (populated by OAuth providers) with sensible fallbacks. Email/password users
+// won't have a name or avatar, so we fall back to the email and an initial.
+
+export function userDisplayName(user: User | null | undefined): string {
+	if (!user) return '';
+	const meta = user.user_metadata ?? {};
+	return meta.full_name || meta.name || user.email || '';
+}
+
+export function userAvatarUrl(user: User | null | undefined): string | null {
+	if (!user) return null;
+	const meta = user.user_metadata ?? {};
+	return meta.avatar_url || meta.picture || null;
+}
+
+export function userInitial(user: User | null | undefined): string {
+	const name = userDisplayName(user);
+	return name.charAt(0).toUpperCase() || '?';
+}
