@@ -1,18 +1,124 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { getProject, deleteProject, type Project } from '$lib/api/projects';
+	import {
+		listItems,
+		updateItem,
+		type Item,
+		type ItemKind,
+		type ItemStatus,
+		ITEM_KINDS
+	} from '$lib/api/items';
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import AddItemDialog from '$lib/components/AddItemDialog.svelte';
+	import QuickViewPanel from '$lib/components/QuickViewPanel.svelte';
+	import StatusIcon from '$lib/components/StatusIcon.svelte';
 	import { projectColourVar } from '$lib/projectColours';
-	import { ArrowLeft, Pencil, Trash2 } from '@lucide/svelte';
+	import {
+		KIND_LABEL,
+		KIND_PLURAL,
+		STATUS_LABEL,
+		kindChipStyle
+	} from '$lib/itemDisplay';
+	import { relativeTime } from '$lib/time';
+	import { ArrowLeft, Pencil, Trash2, Plus, ChevronDown, ChevronRight, X } from '@lucide/svelte';
 
 	let project = $state<Project | null>(null);
-	let error = $state<string | null>(null);
+	let items = $state<Item[] | null>(null);
+	let loadError = $state<string | null>(null);
+	// Transient errors from item-level actions (drag, list ops). Distinct from
+	// loadError so they don't masquerade as a project-load failure.
+	let itemError = $state<string | null>(null);
+	let kindFilter = $state<ItemKind | null>(null);
+	let showDone = $state(false);
+	let showArchived = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let deleting = $state(false);
+	let addItemOpen = $state(false);
+
+	let draggingId = $state<string | null>(null);
+	let dragOverStatus = $state<ItemStatus | null>(null);
+
+	let quickViewItem = $state<Item | null>(null);
+	let quickViewOpen = $state(false);
+
+	function openQuickView(item: Item) {
+		quickViewItem = item;
+		quickViewOpen = true;
+	}
+
+	function handleItemUpdated(updated: Item) {
+		items = items?.map((i) => (i.id === updated.id ? updated : i)) ?? null;
+		if (quickViewItem?.id === updated.id) quickViewItem = updated;
+	}
+
+	function handleItemDeleted(deleted: Item) {
+		items = items?.filter((i) => i.id !== deleted.id) ?? null;
+		if (quickViewItem?.id === deleted.id) {
+			quickViewOpen = false;
+			quickViewItem = null;
+		}
+	}
+
+	function handleItemCreated(item: Item) {
+		items = [item, ...(items ?? [])];
+	}
+
+	function handleDragStart(e: DragEvent, item: Item) {
+		if (!e.dataTransfer) return;
+		e.dataTransfer.setData('text/plain', item.id);
+		e.dataTransfer.effectAllowed = 'move';
+		draggingId = item.id;
+	}
+
+	function handleDragEnd() {
+		draggingId = null;
+		dragOverStatus = null;
+	}
+
+	function handleDragOver(e: DragEvent, status: ItemStatus) {
+		e.preventDefault(); // required to allow drop
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dragOverStatus = status;
+	}
+
+	async function handleDrop(e: DragEvent, status: ItemStatus) {
+		e.preventDefault();
+		dragOverStatus = null;
+		const id = e.dataTransfer?.getData('text/plain');
+		const dragged = items?.find((i) => i.id === id);
+		if (!dragged || !project || dragged.status === status) return;
+
+		// New position = above the current top of the target shelf.
+		const targetTop = items!
+			.filter((i) => i.status === status)
+			.reduce((max, i) => Math.max(max, i.position), 0);
+		const newPosition = targetTop + 1000;
+
+		const snapshot = items!;
+		// Optimistic update
+		items = items!.map((i) =>
+			i.id === dragged.id ? { ...i, status, position: newPosition } : i
+		);
+		// If destination is collapsed, expand so the user sees the result.
+		if (status === 'done') showDone = true;
+		if (status === 'archived') showArchived = true;
+
+		try {
+			const updated = await updateItem(project.slug, dragged.sequence, {
+				status,
+				position: newPosition
+			});
+			items = items!.map((i) => (i.id === updated.id ? updated : i));
+		} catch (e) {
+			items = snapshot;
+			itemError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
 
 	$effect(() => {
 		if (!auth.loading && !auth.user) goto('/login');
@@ -22,12 +128,26 @@
 		const slug = page.params.slug;
 		if (auth.user && slug && project === null) {
 			getProject(slug)
-				.then((res) => (project = res))
+				.then((res) => {
+					project = res;
+					return listItems(res.slug);
+				})
+				.then((res) => {
+					items = res;
+				})
 				.catch((e) => {
-					error = e instanceof ApiError ? e.message : String(e);
+					loadError = e instanceof ApiError ? e.message : String(e);
 				});
 		}
 	});
+
+	const filtered = $derived(
+		items?.filter((i) => !kindFilter || i.kind === kindFilter) ?? []
+	);
+
+	function bucket(status: ItemStatus): Item[] {
+		return filtered.filter((i) => i.status === status);
+	}
 
 	async function performDelete() {
 		if (!project) return;
@@ -36,11 +156,92 @@
 			await deleteProject(project.slug);
 			goto('/');
 		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
+			loadError = e instanceof ApiError ? e.message : String(e);
 			deleting = false;
 		}
 	}
 </script>
+
+{#snippet itemRow(item: Item)}
+	<li
+		draggable="true"
+		ondragstart={(e) => handleDragStart(e, item)}
+		ondragend={handleDragEnd}
+		class="group flex cursor-grab items-center gap-3 px-4 py-2.5 transition hover:bg-card-2 active:cursor-grabbing"
+		class:opacity-40={draggingId === item.id}
+	>
+		<StatusIcon status={item.status} />
+		<button
+			type="button"
+			onclick={() => openQuickView(item)}
+			class="min-w-0 flex-1 truncate text-left text-sm text-fg hover:underline"
+		>
+			{item.title}
+		</button>
+		<span
+			class="rounded-full px-2 py-0.5 text-xs font-medium"
+			style={kindChipStyle(item.kind)}
+		>
+			{KIND_LABEL[item.kind]}
+		</span>
+		<a
+			href={`/projects/${project!.slug}/${item.sequence}`}
+			class="font-mono text-xs text-fg-faint hover:text-fg hover:underline"
+			title="Open full view"
+		>
+			#{item.sequence}
+		</a>
+		<span
+			class="w-10 text-right text-xs text-fg-faint"
+			title={new Date(item.updated_at).toLocaleString()}
+		>
+			{relativeTime(item.updated_at)}
+		</span>
+	</li>
+{/snippet}
+
+{#snippet shelf(status: ItemStatus, defaultOpen: boolean)}
+	{@const list = bucket(status)}
+	{@const expanded = defaultOpen}
+	{@const isDropTarget = dragOverStatus === status && draggingId !== null}
+	<section
+		aria-label={`${STATUS_LABEL[status]} items`}
+		ondragover={(e) => handleDragOver(e, status)}
+		ondragleave={() => (dragOverStatus = null)}
+		ondrop={(e) => handleDrop(e, status)}
+		class="overflow-hidden rounded-lg border bg-card transition"
+		class:border-line={!isDropTarget}
+		class:border-accent={isDropTarget}
+		class:ring-2={isDropTarget}
+		class:ring-accent={isDropTarget}
+		class:ring-offset-2={isDropTarget}
+		class:ring-offset-app={isDropTarget}
+		style:border-top-color={isDropTarget
+			? 'var(--color-accent)'
+			: projectColourVar(project!.colour)}
+		style:border-top-width="2px"
+	>
+		<header
+			class="flex items-center justify-between border-b border-line bg-card-2/40 px-4 py-2"
+		>
+			<h3 class="text-sm font-medium text-fg">{STATUS_LABEL[status]}</h3>
+			<span class="text-xs text-fg-faint">{list.length}</span>
+		</header>
+		{#if expanded}
+			{#if list.length === 0}
+				<p class="px-4 py-6 text-center text-xs text-fg-faint">
+					{isDropTarget ? 'Drop to move here.' : 'Nothing here yet.'}
+				</p>
+			{:else}
+				<ul class="divide-y divide-line/40">
+					{#each list as item (item.id)}
+						{@render itemRow(item)}
+					{/each}
+				</ul>
+			{/if}
+		{/if}
+	</section>
+{/snippet}
 
 {#if !auth.loading && auth.user}
 	<AppHeader />
@@ -55,15 +256,15 @@
 			</a>
 		</div>
 
-		{#if error}
+		{#if loadError}
 			<div class="rounded-md border border-danger/40 bg-danger/10 p-4">
-				<p class="text-sm text-danger">{error}</p>
+				<p class="text-sm text-danger">{loadError}</p>
 			</div>
 		{:else if project === null}
 			<p class="text-sm text-fg-faint">Loading…</p>
 		{:else}
 			<header
-				class="mb-10 border-b-4 pb-6"
+				class="mb-8 border-b-4 pb-6"
 				style:border-bottom-color={projectColourVar(project.colour)}
 			>
 				<div class="flex items-start gap-4">
@@ -72,7 +273,9 @@
 					{/if}
 					<div class="min-w-0 flex-1">
 						<div class="flex items-start justify-between gap-2">
-							<h1 class="text-3xl font-semibold tracking-tight text-fg">{project.name}</h1>
+							<h1 class="text-3xl font-semibold tracking-tight text-fg">
+								{project.name}
+							</h1>
 							<div class="flex shrink-0 items-center gap-1">
 								<a
 									href={`/projects/${project.slug}/edit`}
@@ -101,12 +304,121 @@
 				</div>
 			</header>
 
-			<section class="rounded-lg border border-line bg-card p-12 text-center">
-				<p class="text-fg-muted">No items yet.</p>
-				<p class="mt-2 text-sm text-fg-faint">
-					Brainstorms, tasks, and bugs will land here once that bit is built.
-				</p>
-			</section>
+			{#if items === null}
+				<p class="text-sm text-fg-faint">Loading items…</p>
+			{:else}
+				<!-- Filter + new -->
+				<div class="mb-5 flex flex-wrap items-center gap-2">
+					<button
+						type="button"
+						onclick={() => (kindFilter = null)}
+						class="rounded-full px-3 py-1 text-xs font-medium transition"
+						class:bg-fg={kindFilter === null}
+						class:text-on-accent={kindFilter === null}
+						class:text-fg-muted={kindFilter !== null}
+						class:hover:bg-card-2={kindFilter !== null}
+					>
+						All
+					</button>
+					{#each ITEM_KINDS as k (k)}
+						<button
+							type="button"
+							onclick={() => (kindFilter = k)}
+							class="rounded-full px-3 py-1 text-xs font-medium transition"
+							class:bg-fg={kindFilter === k}
+							class:text-on-accent={kindFilter === k}
+							class:text-fg-muted={kindFilter !== k}
+							class:hover:bg-card-2={kindFilter !== k}
+						>
+							{KIND_PLURAL[k]}
+						</button>
+					{/each}
+					<span class="flex-1"></span>
+					<button
+						type="button"
+						onclick={() => (addItemOpen = true)}
+						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+					>
+						<Plus class="h-4 w-4" />
+						New item
+					</button>
+				</div>
+
+				{#if itemError}
+					<div
+						class="mb-4 flex items-start gap-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+					>
+						<span class="flex-1">{itemError}</span>
+						<button
+							type="button"
+							onclick={() => (itemError = null)}
+							aria-label="Dismiss"
+							class="text-danger/70 transition hover:text-danger"
+						>
+							<X class="h-4 w-4" />
+						</button>
+					</div>
+				{/if}
+
+				{#if items.length === 0}
+					<section
+						class="rounded-lg border border-line bg-card p-12 text-center"
+					>
+						<p class="text-fg-muted">Your trove is empty — toss something in.</p>
+					</section>
+				{:else}
+					<div class="flex flex-col gap-4">
+						{@render shelf('open', true)}
+						{@render shelf('in_progress', true)}
+
+						<div class="flex flex-wrap items-center gap-2 pt-2">
+							<button
+								type="button"
+								onclick={() => (showDone = !showDone)}
+								ondragover={(e) => handleDragOver(e, 'done')}
+								ondragleave={() => (dragOverStatus = null)}
+								ondrop={(e) => handleDrop(e, 'done')}
+								class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
+								class:border-accent={dragOverStatus === 'done' && draggingId !== null}
+							>
+								{#if showDone}
+									<ChevronDown class="h-3.5 w-3.5" />
+								{:else}
+									<ChevronRight class="h-3.5 w-3.5" />
+								{/if}
+								{dragOverStatus === 'done' && draggingId !== null
+									? 'Drop to mark done'
+									: `Done · ${bucket('done').length}`}
+							</button>
+							<button
+								type="button"
+								onclick={() => (showArchived = !showArchived)}
+								ondragover={(e) => handleDragOver(e, 'archived')}
+								ondragleave={() => (dragOverStatus = null)}
+								ondrop={(e) => handleDrop(e, 'archived')}
+								class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
+								class:border-accent={dragOverStatus === 'archived' && draggingId !== null}
+							>
+								{#if showArchived}
+									<ChevronDown class="h-3.5 w-3.5" />
+								{:else}
+									<ChevronRight class="h-3.5 w-3.5" />
+								{/if}
+								{dragOverStatus === 'archived' && draggingId !== null
+									? 'Drop to archive'
+									: `Archived · ${bucket('archived').length}`}
+							</button>
+						</div>
+
+						{#if showDone}
+							{@render shelf('done', true)}
+						{/if}
+						{#if showArchived}
+							{@render shelf('archived', true)}
+						{/if}
+					</div>
+				{/if}
+			{/if}
 
 			<ConfirmDialog
 				bind:open={deleteConfirmOpen}
@@ -116,6 +428,20 @@
 				cancelLabel="Keep it"
 				destructive={true}
 				onConfirm={performDelete}
+			/>
+
+			<AddItemDialog
+				bind:open={addItemOpen}
+				projectSlug={project.slug}
+				onCreated={handleItemCreated}
+			/>
+
+			<QuickViewPanel
+				bind:open={quickViewOpen}
+				item={quickViewItem}
+				{project}
+				onUpdated={handleItemUpdated}
+				onDeleted={handleItemDeleted}
 			/>
 		{/if}
 	</main>

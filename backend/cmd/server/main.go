@@ -55,6 +55,7 @@ func main() {
 	}
 
 	projectsHandler := handlers.NewProjectsHandler(db)
+	itemsHandler := handlers.NewItemsHandler(db)
 
 	mux := http.NewServeMux()
 
@@ -67,6 +68,8 @@ func main() {
 
 	mux.HandleFunc("/v1/projects", authed(projectsHandler.HandleCollection))
 	mux.HandleFunc("/v1/projects/check-slug", authed(projectsHandler.HandleCheckSlug))
+	mux.HandleFunc("/v1/projects/{slug}/items", authed(itemsHandler.HandleCollection))
+	mux.HandleFunc("/v1/projects/{slug}/items/{seq}", authed(itemsHandler.HandleByID))
 	mux.HandleFunc("/v1/projects/", authed(projectsHandler.HandleByID))
 
 	// TODO: register remaining handlers — items, groups, tags, attachments, activity, events (SSE).

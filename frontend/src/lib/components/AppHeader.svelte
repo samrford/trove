@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { LogOut } from '@lucide/svelte';
 	import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
+	import AnimationToggle from '$lib/components/AnimationToggle.svelte';
 
 	let displayName = $derived(userDisplayName(auth.user));
 	let avatarUrl = $derived(userAvatarUrl(auth.user));
@@ -24,6 +25,7 @@
 		{#if auth.user}
 			<div class="flex items-center gap-3">
 				<ThemeSwitcher />
+				<AnimationToggle />
 				<div class="flex items-center gap-2">
 					{#if avatarUrl}
 						<img
