@@ -27,13 +27,7 @@
 		onDeleted?: (item: Item) => void;
 	};
 
-	let {
-		open = $bindable(false),
-		item,
-		project,
-		onUpdated,
-		onDeleted
-	}: Props = $props();
+	let { open = $bindable(false), item, project, onUpdated, onDeleted }: Props = $props();
 
 	let actionError = $state<string | null>(null);
 	let deleteConfirmOpen = $state(false);
@@ -186,10 +180,7 @@
 		<!-- Header -->
 		<header class="flex items-center justify-between border-b border-line px-4 py-3">
 			<div class="flex flex-wrap items-center gap-2">
-				<span
-					class="rounded-full px-2 py-0.5 text-xs font-medium"
-					style={kindChipStyle(item.kind)}
-				>
+				<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
 					{KIND_LABEL[item.kind]}
 				</span>
 				<span class="font-mono text-xs text-fg-faint">#{item.sequence}</span>
@@ -224,9 +215,7 @@
 			<div class="flex-1 overflow-y-auto px-5 py-4">
 				<div class="flex flex-col gap-4">
 					<label class="flex flex-col gap-1.5">
-						<span class="text-xs font-medium uppercase tracking-wide text-fg-faint">
-							Title
-						</span>
+						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase"> Title </span>
 						<input
 							type="text"
 							bind:value={editTitle}
@@ -237,7 +226,7 @@
 					</label>
 
 					<div class="flex flex-col gap-1.5">
-						<span class="text-xs font-medium uppercase tracking-wide text-fg-faint">Kind</span>
+						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">Kind</span>
 						<div class="flex flex-wrap gap-1.5">
 							{#each ITEM_KINDS as k (k)}
 								<button
@@ -254,7 +243,7 @@
 					</div>
 
 					<label class="flex flex-col gap-1.5">
-						<span class="text-xs font-medium uppercase tracking-wide text-fg-faint">
+						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">
 							Notes <span class="font-normal text-fg-faint normal-case">(markdown)</span>
 						</span>
 						<textarea
@@ -285,9 +274,7 @@
 		<!-- Footer: status (always) + actions (view-mode vs edit-mode) -->
 		<footer class="flex flex-col gap-3 border-t border-line px-4 py-3">
 			<div class="flex flex-wrap items-center gap-1.5">
-				<span class="mr-1 text-xs font-medium uppercase tracking-wide text-fg-faint">
-					Status
-				</span>
+				<span class="mr-1 text-xs font-medium tracking-wide text-fg-faint uppercase"> Status </span>
 				{#each ITEM_STATUSES as s (s)}
 					<button
 						type="button"

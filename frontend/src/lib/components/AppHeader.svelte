@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { auth, userDisplayName, userAvatarUrl, userInitial } from '$lib/auth.svelte';
+	import { APP_VERSION } from '$lib/version';
 	import { goto } from '$app/navigation';
 	import { LogOut } from '@lucide/svelte';
 	import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
@@ -20,6 +21,7 @@
 		<a href="/" class="flex items-center gap-2.5">
 			<img src="/logosmall.png" alt="" class="h-8 w-8 rounded-md" />
 			<span class="text-lg font-semibold tracking-tight text-fg">Trove</span>
+			<span class="font-mono text-xs text-fg-faint" title="App version">v{APP_VERSION}</span>
 		</a>
 
 		{#if auth.user}
