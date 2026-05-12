@@ -13,8 +13,8 @@
 {#if item.body}
 	<article
 		use:markdownBody={item.body}
-		class="prose prose-sm prose-invert max-w-none text-fg {cls}"
+		class="prose prose-sm max-w-none text-fg prose-invert {cls}"
 	></article>
 {:else}
-	<p class="text-sm italic text-fg-faint {cls}">No notes yet.</p>
+	<p class="text-sm text-fg-faint italic {cls}">No notes yet.</p>
 {/if}

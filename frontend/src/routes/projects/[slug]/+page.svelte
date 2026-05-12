@@ -18,12 +18,7 @@
 	import QuickViewPanel from '$lib/components/QuickViewPanel.svelte';
 	import StatusIcon from '$lib/components/StatusIcon.svelte';
 	import { projectColourVar } from '$lib/projectColours';
-	import {
-		KIND_LABEL,
-		KIND_PLURAL,
-		STATUS_LABEL,
-		kindChipStyle
-	} from '$lib/itemDisplay';
+	import { KIND_LABEL, KIND_PLURAL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { relativeTime } from '$lib/time';
 	import { ArrowLeft, Pencil, Trash2, Plus, ChevronDown, ChevronRight, X } from '@lucide/svelte';
 
@@ -101,9 +96,7 @@
 
 		const snapshot = items!;
 		// Optimistic update
-		items = items!.map((i) =>
-			i.id === dragged.id ? { ...i, status, position: newPosition } : i
-		);
+		items = items!.map((i) => (i.id === dragged.id ? { ...i, status, position: newPosition } : i));
 		// If destination is collapsed, expand so the user sees the result.
 		if (status === 'done') showDone = true;
 		if (status === 'archived') showArchived = true;
@@ -141,9 +134,7 @@
 		}
 	});
 
-	const filtered = $derived(
-		items?.filter((i) => !kindFilter || i.kind === kindFilter) ?? []
-	);
+	const filtered = $derived(items?.filter((i) => !kindFilter || i.kind === kindFilter) ?? []);
 
 	function bucket(status: ItemStatus): Item[] {
 		return filtered.filter((i) => i.status === status);
@@ -178,10 +169,7 @@
 		>
 			{item.title}
 		</button>
-		<span
-			class="rounded-full px-2 py-0.5 text-xs font-medium"
-			style={kindChipStyle(item.kind)}
-		>
+		<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
 			{KIND_LABEL[item.kind]}
 		</span>
 		<a
@@ -221,9 +209,7 @@
 			: projectColourVar(project!.colour)}
 		style:border-top-width="2px"
 	>
-		<header
-			class="flex items-center justify-between border-b border-line bg-card-2/40 px-4 py-2"
-		>
+		<header class="flex items-center justify-between border-b border-line bg-card-2/40 px-4 py-2">
 			<h3 class="text-sm font-medium text-fg">{STATUS_LABEL[status]}</h3>
 			<span class="text-xs text-fg-faint">{list.length}</span>
 		</header>
@@ -361,9 +347,7 @@
 				{/if}
 
 				{#if items.length === 0}
-					<section
-						class="rounded-lg border border-line bg-card p-12 text-center"
-					>
+					<section class="rounded-lg border border-line bg-card p-12 text-center">
 						<p class="text-fg-muted">Your trove is empty — toss something in.</p>
 					</section>
 				{:else}

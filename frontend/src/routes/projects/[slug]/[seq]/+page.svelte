@@ -198,12 +198,12 @@
 				class="flex flex-col gap-5"
 			>
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="text-xs font-medium uppercase tracking-wide text-fg-faint">Kind</span>
+					<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">Kind</span>
 					<KindPicker value={editKind} onSelect={(k) => (editKind = k)} />
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="text-xs font-medium uppercase tracking-wide text-fg-faint">Status</span>
+					<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">Status</span>
 					<StatusPicker value={editStatus} onSelect={(s) => (editStatus = s)} />
 				</div>
 

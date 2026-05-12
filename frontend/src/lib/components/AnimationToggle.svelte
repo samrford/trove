@@ -8,7 +8,9 @@
 	onclick={() => animations.toggle()}
 	aria-label={animations.enabled ? 'Disable animations' : 'Enable animations'}
 	aria-pressed={animations.enabled}
-	title={animations.enabled ? 'Animations on — click to disable' : 'Animations off — click to enable'}
+	title={animations.enabled
+		? 'Animations on — click to disable'
+		: 'Animations off — click to enable'}
 	class="rounded-md p-2 text-fg-muted transition hover:bg-card-2 hover:text-fg"
 >
 	{#if animations.enabled}
