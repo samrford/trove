@@ -18,11 +18,19 @@
 
 <header class="border-b border-line">
 	<div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-		<a href="/" class="flex items-center gap-2.5">
-			<img src="/logosmall.png" alt="" class="h-8 w-8 rounded-md" />
-			<span class="text-lg font-semibold tracking-tight text-fg">Trove</span>
-			<span class="font-mono text-xs text-fg-faint" title="App version">v{APP_VERSION}</span>
-		</a>
+		<div class="flex items-center gap-6">
+			<a href="/" class="flex items-center gap-2.5">
+				<img src="/logosmall.png" alt="" class="h-8 w-8 rounded-md" />
+				<span class="text-lg font-semibold tracking-tight text-fg">Trove</span>
+				<span class="font-mono text-xs text-fg-faint" title="App version">v{APP_VERSION}</span>
+			</a>
+			{#if auth.user}
+				<nav class="hidden gap-4 text-sm sm:flex">
+					<a href="/" class="text-fg-muted transition hover:text-fg">Projects</a>
+					<a href="/tags" class="text-fg-muted transition hover:text-fg">Tags</a>
+				</nav>
+			{/if}
+		</div>
 
 		{#if auth.user}
 			<div class="flex items-center gap-3">

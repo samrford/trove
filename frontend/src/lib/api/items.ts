@@ -1,4 +1,5 @@
 import { apiFetch } from '$lib/api';
+import type { Tag } from './tags';
 
 export type ItemKind = 'brainstorm' | 'task';
 export type ItemStatus = 'open' | 'in_progress' | 'done' | 'archived';
@@ -18,6 +19,7 @@ export type Item = {
 	creator_id: string;
 	created_at: string;
 	updated_at: string;
+	tags: Tag[];
 };
 
 export type ItemInput = {
@@ -36,17 +38,25 @@ export type ItemUpdate = {
 	position?: number;
 };
 
+export type TagFilterMode = 'and' | 'or';
+
 export type ListItemsOptions = {
 	kind?: ItemKind;
 	status?: ItemStatus;
+	tags?: string[];
+	tagMode?: TagFilterMode;
 };
 
 function projectItemsUrl(slugOrID: string, options?: ListItemsOptions): string {
 	const base = `/v1/projects/${encodeURIComponent(slugOrID)}/items`;
-	if (!options?.kind && !options?.status) return base;
+	if (!options?.kind && !options?.status && !options?.tags?.length) return base;
 	const params = new URLSearchParams();
 	if (options.kind) params.set('kind', options.kind);
 	if (options.status) params.set('status', options.status);
+	if (options.tags?.length) {
+		for (const slug of options.tags) params.append('tag', slug);
+		if (options.tagMode) params.set('tag_mode', options.tagMode);
+	}
 	return `${base}?${params}`;
 }
 
@@ -76,4 +86,36 @@ export function deleteItem(slugOrID: string, sequence: number): Promise<void> {
 	return apiFetch<void>(`/v1/projects/${encodeURIComponent(slugOrID)}/items/${sequence}`, {
 		method: 'DELETE'
 	});
+}
+
+// Attach a tag to an item. Accepts an existing tag (by id or slug) or a name
+// to find-or-create. Returns the (possibly newly-created) tag.
+export type AttachTagInput =
+	| { tag_id: string }
+	| { tag_slug: string }
+	| { name: string; colour?: string | null; icon?: string | null };
+
+export function attachTagToItem(
+	slugOrID: string,
+	sequence: number,
+	input: AttachTagInput
+): Promise<Tag> {
+	return apiFetch<Tag>(
+		`/v1/projects/${encodeURIComponent(slugOrID)}/items/${sequence}/tags`,
+		{
+			method: 'POST',
+			body: JSON.stringify(input)
+		}
+	);
+}
+
+export function detachTagFromItem(
+	slugOrID: string,
+	sequence: number,
+	tagSlug: string
+): Promise<void> {
+	return apiFetch<void>(
+		`/v1/projects/${encodeURIComponent(slugOrID)}/items/${sequence}/tags/${encodeURIComponent(tagSlug)}`,
+		{ method: 'DELETE' }
+	);
 }

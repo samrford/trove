@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type ItemKind string
@@ -41,26 +43,37 @@ func IsValidItemStatus(s string) bool {
 }
 
 type Item struct {
-	ID         string     `json:"id"`
-	ProjectID  string     `json:"project_id"`
-	Sequence   int        `json:"sequence"`
-	Kind       ItemKind   `json:"kind"`
-	Status     ItemStatus `json:"status"`
-	Title      string     `json:"title"`
-	Body       *string    `json:"body"`
-	Position   float64    `json:"position"`
-	CreatorID  string     `json:"creator_id"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID        string     `json:"id"`
+	ProjectID string     `json:"project_id"`
+	Sequence  int        `json:"sequence"`
+	Kind      ItemKind   `json:"kind"`
+	Status    ItemStatus `json:"status"`
+	Title     string     `json:"title"`
+	Body      *string    `json:"body"`
+	Position  float64    `json:"position"`
+	CreatorID string     `json:"creator_id"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Tags []Tag `json:"tags"`
+}
+
+type ItemFilter struct {
+	Kind     string
+	Status   string
+	TagSlugs []string
+	TagMode  string
 }
 
 const itemColumns = `id, project_id, sequence, kind, status, title, body, position,
 	creator_id, created_at, updated_at`
 
+const itemColumnsI = `i.id, i.project_id, i.sequence, i.kind, i.status, i.title, i.body,
+	i.position, i.creator_id, i.created_at, i.updated_at`
+
 func scanItem(row interface {
 	Scan(dest ...any) error
 }) (*Item, error) {
-	var i Item
+	i := Item{Tags: []Tag{}}
 	if err := row.Scan(
 		&i.ID, &i.ProjectID, &i.Sequence, &i.Kind, &i.Status, &i.Title, &i.Body,
 		&i.Position, &i.CreatorID, &i.CreatedAt, &i.UpdatedAt,
@@ -115,24 +128,44 @@ func GetItemBySequence(ctx context.Context, db *sql.DB, projectID string, sequen
 	return scanItem(row)
 }
 
-// ListItemsForProject returns all items in a project, ordered by position DESC
-// (newest first by default). Optional kind/status filters; pass "" to skip either.
-func ListItemsForProject(ctx context.Context, db *sql.DB, projectID, kind, status string) ([]Item, error) {
-	clauses := []string{"project_id = $1"}
+// ListItemsForProject returns items in a project, ordered by position DESC
+// (newest first by default). The filter struct is optional — zero-value means
+// "no filtering". For tag filters, TagMode="and" requires items to have all
+// listed tags; "or" requires any.
+func ListItemsForProject(ctx context.Context, db *sql.DB, projectID string, filter ItemFilter) ([]Item, error) {
+	clauses := []string{"i.project_id = $1"}
 	args := []any{projectID}
 
-	if kind != "" {
-		args = append(args, kind)
-		clauses = append(clauses, fmt.Sprintf("kind = $%d", len(args)))
+	if filter.Kind != "" {
+		args = append(args, filter.Kind)
+		clauses = append(clauses, fmt.Sprintf("i.kind = $%d", len(args)))
 	}
-	if status != "" {
-		args = append(args, status)
-		clauses = append(clauses, fmt.Sprintf("status = $%d", len(args)))
+	if filter.Status != "" {
+		args = append(args, filter.Status)
+		clauses = append(clauses, fmt.Sprintf("i.status = $%d", len(args)))
+	}
+	if len(filter.TagSlugs) > 0 {
+		args = append(args, pq.Array(filter.TagSlugs))
+		tagsArgIdx := len(args)
+		if filter.TagMode == "or" {
+			clauses = append(clauses, fmt.Sprintf(`EXISTS (
+				SELECT 1 FROM item_tags it
+				JOIN tags t ON t.id = it.tag_id
+				WHERE it.item_id = i.id AND t.slug = ANY($%d)
+			)`, tagsArgIdx))
+		} else {
+			// Default AND: item must have every listed slug.
+			clauses = append(clauses, fmt.Sprintf(`(
+				SELECT COUNT(DISTINCT t.slug) FROM tags t
+				JOIN item_tags it ON it.tag_id = t.id
+				WHERE it.item_id = i.id AND t.slug = ANY($%d)
+			) = cardinality($%d)`, tagsArgIdx, tagsArgIdx))
+		}
 	}
 
-	query := `SELECT ` + itemColumns + ` FROM items
+	query := `SELECT ` + itemColumnsI + ` FROM items i
 		WHERE ` + strings.Join(clauses, " AND ") + `
-		ORDER BY position DESC`
+		ORDER BY i.position DESC`
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -150,6 +183,7 @@ func ListItemsForProject(ctx context.Context, db *sql.DB, projectID, kind, statu
 	}
 	return items, rows.Err()
 }
+
 
 // ItemPatch carries optional fields for UpdateItem. nil = leave alone.
 // For Body and Position, pass a non-nil pointer to clear/set; the inner value

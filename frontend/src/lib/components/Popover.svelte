@@ -15,8 +15,16 @@
 	let open = $state(false);
 	let wrapperEl: HTMLDivElement | undefined = $state();
 	let popoverEl: HTMLDivElement | undefined = $state();
+	let coords = $state<{ top: number; left: number }>({ top: 0, left: 0 });
+
+	function recomputeCoords() {
+		if (!wrapperEl) return;
+		const rect = wrapperEl.getBoundingClientRect();
+		coords = { top: rect.bottom + 6, left: rect.left };
+	}
 
 	function toggle() {
+		if (!open) recomputeCoords();
 		open = !open;
 	}
 
@@ -35,26 +43,35 @@
 			if (popoverEl?.contains(target) || wrapperEl?.contains(target)) return;
 			open = false;
 		}
+		function onReposition() {
+			recomputeCoords();
+		}
 		document.addEventListener('keydown', onKey);
 		document.addEventListener('mousedown', onPointer);
+		window.addEventListener('scroll', onReposition, true);
+		window.addEventListener('resize', onReposition);
 		return () => {
 			document.removeEventListener('keydown', onKey);
 			document.removeEventListener('mousedown', onPointer);
+			window.removeEventListener('scroll', onReposition, true);
+			window.removeEventListener('resize', onReposition);
 		};
 	});
 </script>
 
 <div bind:this={wrapperEl} class="relative inline-block">
 	{@render trigger({ open, toggle })}
-
-	{#if open}
-		<div
-			bind:this={popoverEl}
-			role="dialog"
-			aria-label={label}
-			class="absolute top-full left-0 z-20 mt-2 rounded-md border border-line bg-card p-2 shadow-lg"
-		>
-			{@render children({ close })}
-		</div>
-	{/if}
 </div>
+
+{#if open}
+	<div
+		bind:this={popoverEl}
+		role="dialog"
+		aria-label={label}
+		style:top="{coords.top}px"
+		style:left="{coords.left}px"
+		class="fixed z-50 rounded-md border border-line bg-card p-2 shadow-lg"
+	>
+		{@render children({ close })}
+	</div>
+{/if}

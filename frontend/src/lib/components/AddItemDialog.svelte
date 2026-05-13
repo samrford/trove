@@ -1,7 +1,11 @@
 <script lang="ts">
-	import { createItem, type Item, type ItemKind } from '$lib/api/items';
+	import { createItem, attachTagToItem, type Item, type ItemKind } from '$lib/api/items';
+	import { listTags, type Tag, type TagWithCount } from '$lib/api/tags';
 	import { KIND_PLACEHOLDERS } from '$lib/itemDisplay';
 	import KindPicker from './KindPicker.svelte';
+	import TagCombobox from './TagCombobox.svelte';
+	import { tagColourFromName } from '$lib/tagColours';
+	import { slugify } from '$lib/slug';
 	import { ApiError } from '$lib/api';
 
 	type Props = {
@@ -20,12 +24,51 @@
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 
+	// Pending tags use a synthetic `id: "new:<name>"` so handleSubmit can
+	// distinguish them and find-or-create on the server.
+	let stagedTags = $state<Tag[]>([]);
+	let availableTags = $state<TagWithCount[]>([]);
+
 	function reset() {
 		kind = 'task';
 		title = '';
 		body = '';
+		stagedTags = [];
 		error = null;
 		submitting = false;
+	}
+
+	function addStagedTag(
+		t: Tag | { name: string; colour?: string | null; icon?: string | null }
+	) {
+		if ('id' in t) {
+			if (stagedTags.some((s) => s.id === t.id)) return;
+			stagedTags = [...stagedTags, t];
+		} else {
+			const name = t.name.trim();
+			if (!name) return;
+			if (stagedTags.some((s) => s.name.toLowerCase() === name.toLowerCase())) return;
+			stagedTags = [
+				...stagedTags,
+				{
+					id: `new:${name}`,
+					slug: slugify(name) || name,
+					name,
+					description: null,
+					icon: t.icon ?? null,
+					colour: t.colour ?? tagColourFromName(name),
+					user_id: null,
+					group_id: null,
+					archived_at: null,
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString()
+				}
+			];
+		}
+	}
+
+	function removeStagedTag(t: Tag) {
+		stagedTags = stagedTags.filter((s) => s.id !== t.id);
 	}
 
 	$effect(() => {
@@ -37,6 +80,9 @@
 			requestAnimationFrame(() => {
 				dialog?.querySelector<HTMLInputElement>('input[name="title"]')?.focus();
 			});
+			listTags()
+				.then((res) => (availableTags = res))
+				.catch(() => {});
 		} else if (!open && dialog.open) {
 			dialog.close();
 		}
@@ -58,8 +104,20 @@
 				title: trimmed,
 				body: body.trim() || null
 			});
+			const results = await Promise.allSettled(
+				stagedTags.map((t) =>
+					t.id.startsWith('new:')
+						? attachTagToItem(projectSlug, item.sequence, {
+								name: t.name,
+								colour: t.colour,
+								icon: t.icon
+							})
+						: attachTagToItem(projectSlug, item.sequence, { tag_id: t.id })
+				)
+			);
+			const attachedTags = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
 			open = false;
-			onCreated(item);
+			onCreated({ ...item, tags: attachedTags });
 		} catch (e) {
 			error = e instanceof ApiError ? e.message : String(e);
 			submitting = false;
@@ -104,6 +162,19 @@
 				class="resize-none rounded-md border border-line bg-card px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
 			></textarea>
 		</label>
+
+		<div class="flex flex-col gap-2">
+			<span class="text-sm font-medium text-fg"
+				>Tags <span class="font-normal text-fg-faint">(optional)</span></span
+			>
+			<TagCombobox
+				selected={stagedTags}
+				{availableTags}
+				onAdd={addStagedTag}
+				onRemove={removeStagedTag}
+				placeholder="Add tags…"
+			/>
+		</div>
 
 		{#if error}
 			<p class="text-sm text-danger">{error}</p>

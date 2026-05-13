@@ -2,19 +2,25 @@
 	import {
 		updateItem,
 		deleteItem,
+		attachTagToItem,
+		detachTagFromItem,
 		type Item,
 		type ItemKind,
 		type ItemStatus,
 		ITEM_KINDS,
 		ITEM_STATUSES
 	} from '$lib/api/items';
+	import { listTags, type Tag, type TagWithCount } from '$lib/api/tags';
 	import type { Project } from '$lib/api/projects';
 	import { ApiError } from '$lib/api';
 	import { animations } from '$lib/animations.svelte';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
+	import { tagColourFromName } from '$lib/tagColours';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import StatusIcon from './StatusIcon.svelte';
 	import ItemBody from './ItemBody.svelte';
+	import TagChip from './TagChip.svelte';
+	import TagCombobox from './TagCombobox.svelte';
 	import { fly } from 'svelte/transition';
 	import { backInOut } from 'svelte/easing';
 	import { X, ExternalLink, Trash2, Pencil, Check } from '@lucide/svelte';
@@ -38,6 +44,47 @@
 	let editBody = $state('');
 	let editKind = $state<ItemKind>('task');
 
+	let availableTags = $state<TagWithCount[]>([]);
+
+	async function refreshAvailableTags() {
+		try {
+			availableTags = await listTags();
+		} catch {
+			// Tag list is non-critical for edit; ignore.
+		}
+	}
+
+	async function handleAddTag(
+		t: Tag | { name: string; colour?: string | null; icon?: string | null }
+	) {
+		if (!item || !project) return;
+		try {
+			const tag =
+				'id' in t
+					? await attachTagToItem(project.slug, item.sequence, { tag_id: t.id })
+					: await attachTagToItem(project.slug, item.sequence, {
+							name: t.name,
+							colour: t.colour ?? tagColourFromName(t.name),
+							icon: t.icon ?? null
+						});
+			const updated = { ...item, tags: [...item.tags, tag] };
+			onUpdated?.(updated);
+		} catch (e) {
+			actionError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
+
+	async function handleRemoveTag(t: Tag) {
+		if (!item || !project) return;
+		try {
+			await detachTagFromItem(project.slug, item.sequence, t.slug);
+			const updated = { ...item, tags: item.tags.filter((x) => x.id !== t.id) };
+			onUpdated?.(updated);
+		} catch (e) {
+			actionError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
+
 	function close() {
 		if (editing) return; // don't lose unsaved edits via backdrop / X
 		open = false;
@@ -51,6 +98,7 @@
 		editKind = item.kind;
 		actionError = null;
 		editing = true;
+		refreshAvailableTags();
 	}
 
 	function cancelEdit() {
@@ -253,6 +301,17 @@
 							class="resize-y rounded-md border border-line bg-card px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
 						></textarea>
 					</label>
+
+					<div class="flex flex-col gap-1.5">
+						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">Tags</span>
+						<TagCombobox
+							selected={item.tags}
+							{availableTags}
+							onAdd={handleAddTag}
+							onRemove={handleRemoveTag}
+							placeholder="Add tags…"
+						/>
+					</div>
 				</div>
 			</div>
 		{:else}
@@ -265,6 +324,13 @@
 						class="absolute inset-4 overflow-y-auto rounded-lg border border-line bg-card-2 p-5"
 					>
 						<h2 class="text-xl font-semibold tracking-tight text-fg">{item.title}</h2>
+						{#if item.tags.length > 0}
+							<div class="mt-3 flex flex-wrap gap-1.5">
+								{#each item.tags as tag (tag.id)}
+									<TagChip {tag} size="sm" />
+								{/each}
+							</div>
+						{/if}
 						<ItemBody {item} class="mt-4" />
 					</div>
 				{/key}

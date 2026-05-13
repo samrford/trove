@@ -4,11 +4,14 @@
 	import {
 		listItems,
 		updateItem,
+		detachTagFromItem,
 		type Item,
 		type ItemKind,
 		type ItemStatus,
+		type TagFilterMode,
 		ITEM_KINDS
 	} from '$lib/api/items';
+	import { listTagsForProject, type TagWithCount } from '$lib/api/tags';
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -17,6 +20,8 @@
 	import AddItemDialog from '$lib/components/AddItemDialog.svelte';
 	import QuickViewPanel from '$lib/components/QuickViewPanel.svelte';
 	import StatusIcon from '$lib/components/StatusIcon.svelte';
+	import ItemTagChip from '$lib/components/ItemTagChip.svelte';
+	import TagFilterSidebar from '$lib/components/TagFilterSidebar.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, KIND_PLURAL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { relativeTime } from '$lib/time';
@@ -24,11 +29,14 @@
 
 	let project = $state<Project | null>(null);
 	let items = $state<Item[] | null>(null);
+	let tagsInProject = $state<TagWithCount[]>([]);
 	let loadError = $state<string | null>(null);
 	// Transient errors from item-level actions (drag, list ops). Distinct from
 	// loadError so they don't masquerade as a project-load failure.
 	let itemError = $state<string | null>(null);
 	let kindFilter = $state<ItemKind | null>(null);
+	let selectedTagSlugs = $state<string[]>([]);
+	let tagMode = $state<TagFilterMode>('and');
 	let showDone = $state(false);
 	let showArchived = $state(false);
 	let deleteConfirmOpen = $state(false);
@@ -46,9 +54,26 @@
 		quickViewOpen = true;
 	}
 
+	function refreshTagsInProject() {
+		if (!project) return;
+		listTagsForProject(project.slug)
+			.then((tgs) => (tagsInProject = tgs))
+			.catch(() => {});
+	}
+
+	function sameTagSet(a: Item['tags'], b: Item['tags']) {
+		if (a.length !== b.length) return false;
+		const ids = new Set(a.map((t) => t.id));
+		return b.every((t) => ids.has(t.id));
+	}
+
 	function handleItemUpdated(updated: Item) {
+		const previous = items?.find((i) => i.id === updated.id);
 		items = items?.map((i) => (i.id === updated.id ? updated : i)) ?? null;
 		if (quickViewItem?.id === updated.id) quickViewItem = updated;
+		if (!previous || !sameTagSet(previous.tags, updated.tags)) {
+			refreshTagsInProject();
+		}
 	}
 
 	function handleItemDeleted(deleted: Item) {
@@ -57,10 +82,12 @@
 			quickViewOpen = false;
 			quickViewItem = null;
 		}
+		if (deleted.tags.length > 0) refreshTagsInProject();
 	}
 
 	function handleItemCreated(item: Item) {
 		items = [item, ...(items ?? [])];
+		if (item.tags.length > 0) refreshTagsInProject();
 	}
 
 	function handleDragStart(e: DragEvent, item: Item) {
@@ -123,16 +150,53 @@
 			getProject(slug)
 				.then((res) => {
 					project = res;
-					return listItems(res.slug);
+					return listTagsForProject(res.slug);
 				})
-				.then((res) => {
-					items = res;
+				.then((tgs) => {
+					tagsInProject = tgs;
 				})
 				.catch((e) => {
 					loadError = e instanceof ApiError ? e.message : String(e);
 				});
 		}
 	});
+
+	// Items load: fires on initial project load and whenever the tag filter
+	// changes. Server-side filter so AND/OR semantics match the backend exactly.
+	$effect(() => {
+		if (!project) return;
+		const opts = selectedTagSlugs.length > 0
+			? { tags: selectedTagSlugs, tagMode }
+			: undefined;
+		listItems(project.slug, opts)
+			.then((res) => (items = res))
+			.catch((e) => (itemError = e instanceof ApiError ? e.message : String(e)));
+	});
+
+	function toggleTagFilter(slug: string) {
+		if (selectedTagSlugs.includes(slug)) {
+			selectedTagSlugs = selectedTagSlugs.filter((s) => s !== slug);
+		} else {
+			selectedTagSlugs = [...selectedTagSlugs, slug];
+		}
+	}
+
+	async function handleDetachTag(item: Item, tagSlug: string) {
+		if (!project) return;
+		const snapshot = items;
+		// Optimistic remove
+		items =
+			items?.map((i) =>
+				i.id === item.id ? { ...i, tags: i.tags.filter((t) => t.slug !== tagSlug) } : i
+			) ?? null;
+		try {
+			await detachTagFromItem(project.slug, item.sequence, tagSlug);
+			refreshTagsInProject();
+		} catch (e) {
+			items = snapshot;
+			itemError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
 
 	const filtered = $derived(items?.filter((i) => !kindFilter || i.kind === kindFilter) ?? []);
 
@@ -169,6 +233,13 @@
 		>
 			{item.title}
 		</button>
+		{#if item.tags.length > 0}
+			<div class="flex flex-wrap items-center gap-1">
+				{#each item.tags as tag (tag.id)}
+					<ItemTagChip {tag} onRemove={() => handleDetachTag(item, tag.slug)} />
+				{/each}
+			</div>
+		{/if}
 		<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
 			{KIND_LABEL[item.kind]}
 		</span>
@@ -231,7 +302,7 @@
 
 {#if !auth.loading && auth.user}
 	<AppHeader />
-	<main class="mx-auto max-w-4xl px-6 py-10">
+	<main class="mx-auto max-w-6xl px-6 py-10">
 		<div class="mb-6">
 			<a
 				href="/"
@@ -293,6 +364,19 @@
 			{#if items === null}
 				<p class="text-sm text-fg-faint">Loading items…</p>
 			{:else}
+				<div class="flex flex-col gap-6 lg:flex-row">
+					{#if tagsInProject.length > 0}
+						<div class="w-full shrink-0 lg:w-56">
+							<TagFilterSidebar
+								tags={tagsInProject}
+								selectedSlugs={selectedTagSlugs}
+								mode={tagMode}
+								onToggle={toggleTagFilter}
+								onModeChange={(m) => (tagMode = m)}
+							/>
+						</div>
+					{/if}
+					<div class="min-w-0 flex-1">
 				<!-- Filter + new -->
 				<div class="mb-5 flex flex-wrap items-center gap-2">
 					<button
@@ -402,6 +486,8 @@
 						{/if}
 					</div>
 				{/if}
+					</div>
+				</div>
 			{/if}
 
 			<ConfirmDialog

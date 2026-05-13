@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { slugify, isValidSlug } from '$lib/slug';
-	import { checkSlug } from '$lib/api/projects';
+	import { checkSlug as defaultCheckSlug, type SlugCheck } from '$lib/api/projects';
 	import { Check, X, Loader2 } from '@lucide/svelte';
 
 	export type SlugStatus = 'idle' | 'invalid' | 'checking' | 'available' | 'taken';
@@ -13,6 +13,8 @@
 		originalName?: string;
 		originalSlug?: string;
 		id?: string;
+		checkSlugFn?: (slug: string, signal?: AbortSignal) => Promise<SlugCheck>;
+		entityLabel?: string;
 	};
 
 	let {
@@ -21,7 +23,9 @@
 		name,
 		originalName,
 		originalSlug,
-		id
+		id,
+		checkSlugFn = defaultCheckSlug,
+		entityLabel = 'project'
 	}: Props = $props();
 
 	const isCreating = $derived(originalSlug === undefined);
@@ -65,7 +69,7 @@
 		abortCtrl = ctrl;
 		debounceTimer = setTimeout(async () => {
 			try {
-				const res = await checkSlug(trimmed, ctrl.signal);
+				const res = await checkSlugFn(trimmed, ctrl.signal);
 				if (ctrl.signal.aborted) return;
 				if (res.reason === 'invalid') status = 'invalid';
 				else status = res.available ? 'available' : 'taken';
@@ -116,7 +120,7 @@
 
 	{#if showMismatch}
 		<p class="text-xs text-danger">
-			The slug won't match your project name. Leave it as is, or update it — perhaps to
+			The slug won't match your {entityLabel} name. Leave it as is, or update it — perhaps to
 			<button
 				type="button"
 				onclick={() => (value = suggestion)}
