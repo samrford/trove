@@ -100,13 +100,10 @@ export function attachTagToItem(
 	sequence: number,
 	input: AttachTagInput
 ): Promise<Tag> {
-	return apiFetch<Tag>(
-		`/v1/projects/${encodeURIComponent(slugOrID)}/items/${sequence}/tags`,
-		{
-			method: 'POST',
-			body: JSON.stringify(input)
-		}
-	);
+	return apiFetch<Tag>(`/v1/projects/${encodeURIComponent(slugOrID)}/items/${sequence}/tags`, {
+		method: 'POST',
+		body: JSON.stringify(input)
+	});
 }
 
 export function detachTagFromItem(

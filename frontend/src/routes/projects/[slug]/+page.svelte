@@ -165,9 +165,7 @@
 	// changes. Server-side filter so AND/OR semantics match the backend exactly.
 	$effect(() => {
 		if (!project) return;
-		const opts = selectedTagSlugs.length > 0
-			? { tags: selectedTagSlugs, tagMode }
-			: undefined;
+		const opts = selectedTagSlugs.length > 0 ? { tags: selectedTagSlugs, tagMode } : undefined;
 		listItems(project.slug, opts)
 			.then((res) => (items = res))
 			.catch((e) => (itemError = e instanceof ApiError ? e.message : String(e)));
@@ -377,115 +375,115 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
-				<!-- Filter + new -->
-				<div class="mb-5 flex flex-wrap items-center gap-2">
-					<button
-						type="button"
-						onclick={() => (kindFilter = null)}
-						class="rounded-full px-3 py-1 text-xs font-medium transition"
-						class:bg-fg={kindFilter === null}
-						class:text-on-accent={kindFilter === null}
-						class:text-fg-muted={kindFilter !== null}
-						class:hover:bg-card-2={kindFilter !== null}
-					>
-						All
-					</button>
-					{#each ITEM_KINDS as k (k)}
-						<button
-							type="button"
-							onclick={() => (kindFilter = k)}
-							class="rounded-full px-3 py-1 text-xs font-medium transition"
-							class:bg-fg={kindFilter === k}
-							class:text-on-accent={kindFilter === k}
-							class:text-fg-muted={kindFilter !== k}
-							class:hover:bg-card-2={kindFilter !== k}
-						>
-							{KIND_PLURAL[k]}
-						</button>
-					{/each}
-					<span class="flex-1"></span>
-					<button
-						type="button"
-						onclick={() => (addItemOpen = true)}
-						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
-					>
-						<Plus class="h-4 w-4" />
-						New item
-					</button>
-				</div>
-
-				{#if itemError}
-					<div
-						class="mb-4 flex items-start gap-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
-					>
-						<span class="flex-1">{itemError}</span>
-						<button
-							type="button"
-							onclick={() => (itemError = null)}
-							aria-label="Dismiss"
-							class="text-danger/70 transition hover:text-danger"
-						>
-							<X class="h-4 w-4" />
-						</button>
-					</div>
-				{/if}
-
-				{#if items.length === 0}
-					<section class="rounded-lg border border-line bg-card p-12 text-center">
-						<p class="text-fg-muted">Your trove is empty — toss something in.</p>
-					</section>
-				{:else}
-					<div class="flex flex-col gap-4">
-						{@render shelf('open', true)}
-						{@render shelf('in_progress', true)}
-
-						<div class="flex flex-wrap items-center gap-2 pt-2">
+						<!-- Filter + new -->
+						<div class="mb-5 flex flex-wrap items-center gap-2">
 							<button
 								type="button"
-								onclick={() => (showDone = !showDone)}
-								ondragover={(e) => handleDragOver(e, 'done')}
-								ondragleave={() => (dragOverStatus = null)}
-								ondrop={(e) => handleDrop(e, 'done')}
-								class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
-								class:border-accent={dragOverStatus === 'done' && draggingId !== null}
+								onclick={() => (kindFilter = null)}
+								class="rounded-full px-3 py-1 text-xs font-medium transition"
+								class:bg-fg={kindFilter === null}
+								class:text-on-accent={kindFilter === null}
+								class:text-fg-muted={kindFilter !== null}
+								class:hover:bg-card-2={kindFilter !== null}
 							>
-								{#if showDone}
-									<ChevronDown class="h-3.5 w-3.5" />
-								{:else}
-									<ChevronRight class="h-3.5 w-3.5" />
-								{/if}
-								{dragOverStatus === 'done' && draggingId !== null
-									? 'Drop to mark done'
-									: `Done · ${bucket('done').length}`}
+								All
 							</button>
+							{#each ITEM_KINDS as k (k)}
+								<button
+									type="button"
+									onclick={() => (kindFilter = k)}
+									class="rounded-full px-3 py-1 text-xs font-medium transition"
+									class:bg-fg={kindFilter === k}
+									class:text-on-accent={kindFilter === k}
+									class:text-fg-muted={kindFilter !== k}
+									class:hover:bg-card-2={kindFilter !== k}
+								>
+									{KIND_PLURAL[k]}
+								</button>
+							{/each}
+							<span class="flex-1"></span>
 							<button
 								type="button"
-								onclick={() => (showArchived = !showArchived)}
-								ondragover={(e) => handleDragOver(e, 'archived')}
-								ondragleave={() => (dragOverStatus = null)}
-								ondrop={(e) => handleDrop(e, 'archived')}
-								class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
-								class:border-accent={dragOverStatus === 'archived' && draggingId !== null}
+								onclick={() => (addItemOpen = true)}
+								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
 							>
-								{#if showArchived}
-									<ChevronDown class="h-3.5 w-3.5" />
-								{:else}
-									<ChevronRight class="h-3.5 w-3.5" />
-								{/if}
-								{dragOverStatus === 'archived' && draggingId !== null
-									? 'Drop to archive'
-									: `Archived · ${bucket('archived').length}`}
+								<Plus class="h-4 w-4" />
+								New item
 							</button>
 						</div>
 
-						{#if showDone}
-							{@render shelf('done', true)}
+						{#if itemError}
+							<div
+								class="mb-4 flex items-start gap-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+							>
+								<span class="flex-1">{itemError}</span>
+								<button
+									type="button"
+									onclick={() => (itemError = null)}
+									aria-label="Dismiss"
+									class="text-danger/70 transition hover:text-danger"
+								>
+									<X class="h-4 w-4" />
+								</button>
+							</div>
 						{/if}
-						{#if showArchived}
-							{@render shelf('archived', true)}
+
+						{#if items.length === 0}
+							<section class="rounded-lg border border-line bg-card p-12 text-center">
+								<p class="text-fg-muted">Your trove is empty — toss something in.</p>
+							</section>
+						{:else}
+							<div class="flex flex-col gap-4">
+								{@render shelf('open', true)}
+								{@render shelf('in_progress', true)}
+
+								<div class="flex flex-wrap items-center gap-2 pt-2">
+									<button
+										type="button"
+										onclick={() => (showDone = !showDone)}
+										ondragover={(e) => handleDragOver(e, 'done')}
+										ondragleave={() => (dragOverStatus = null)}
+										ondrop={(e) => handleDrop(e, 'done')}
+										class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
+										class:border-accent={dragOverStatus === 'done' && draggingId !== null}
+									>
+										{#if showDone}
+											<ChevronDown class="h-3.5 w-3.5" />
+										{:else}
+											<ChevronRight class="h-3.5 w-3.5" />
+										{/if}
+										{dragOverStatus === 'done' && draggingId !== null
+											? 'Drop to mark done'
+											: `Done · ${bucket('done').length}`}
+									</button>
+									<button
+										type="button"
+										onclick={() => (showArchived = !showArchived)}
+										ondragover={(e) => handleDragOver(e, 'archived')}
+										ondragleave={() => (dragOverStatus = null)}
+										ondrop={(e) => handleDrop(e, 'archived')}
+										class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
+										class:border-accent={dragOverStatus === 'archived' && draggingId !== null}
+									>
+										{#if showArchived}
+											<ChevronDown class="h-3.5 w-3.5" />
+										{:else}
+											<ChevronRight class="h-3.5 w-3.5" />
+										{/if}
+										{dragOverStatus === 'archived' && draggingId !== null
+											? 'Drop to archive'
+											: `Archived · ${bucket('archived').length}`}
+									</button>
+								</div>
+
+								{#if showDone}
+									{@render shelf('done', true)}
+								{/if}
+								{#if showArchived}
+									{@render shelf('archived', true)}
+								{/if}
+							</div>
 						{/if}
-					</div>
-				{/if}
 					</div>
 				</div>
 			{/if}

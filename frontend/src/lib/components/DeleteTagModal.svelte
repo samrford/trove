@@ -26,9 +26,7 @@
 >
 	<div class="w-full max-w-md rounded-lg border border-line bg-card shadow-xl">
 		<div class="flex items-start justify-between p-5 pb-3">
-			<h2 id="delete-tag-title" class="text-lg font-semibold text-fg">
-				Delete tag?
-			</h2>
+			<h2 id="delete-tag-title" class="text-lg font-semibold text-fg">Delete tag?</h2>
 			<button
 				type="button"
 				onclick={onCancel}

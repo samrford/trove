@@ -38,9 +38,7 @@
 		submitting = false;
 	}
 
-	function addStagedTag(
-		t: Tag | { name: string; colour?: string | null; icon?: string | null }
-	) {
+	function addStagedTag(t: Tag | { name: string; colour?: string | null; icon?: string | null }) {
 		if ('id' in t) {
 			if (stagedTags.some((s) => s.id === t.id)) return;
 			stagedTags = [...stagedTags, t];

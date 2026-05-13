@@ -207,8 +207,7 @@
 					</label>
 					{#if !updateSlugWithName && slug !== tag.slug}
 						<p class="text-xs text-fg-faint">
-							Slug stays as <code class="font-mono">{tag.slug}</code> until you change it
-							manually.
+							Slug stays as <code class="font-mono">{tag.slug}</code> until you change it manually.
 						</p>
 					{/if}
 				</div>
@@ -267,9 +266,7 @@
 				{:else}
 					<ul class="flex flex-col gap-2">
 						{#each items as item (item.id)}
-							<li
-								class="rounded-md border border-line bg-card px-3 py-2 text-sm text-fg"
-							>
+							<li class="rounded-md border border-line bg-card px-3 py-2 text-sm text-fg">
 								<span class="font-mono text-xs text-fg-faint">#{item.sequence}</span>
 								{item.title}
 							</li>

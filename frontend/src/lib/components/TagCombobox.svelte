@@ -18,13 +18,7 @@
 		placeholder?: string;
 	};
 
-	let {
-		selected,
-		availableTags,
-		onAdd,
-		onRemove,
-		placeholder = 'Add a tag…'
-	}: Props = $props();
+	let { selected, availableTags, onAdd, onRemove, placeholder = 'Add a tag…' }: Props = $props();
 
 	let query = $state('');
 	let inputEl: HTMLInputElement | undefined = $state();
@@ -217,9 +211,7 @@
 				<!-- Inline new-tag configurator: chip preview + colour + icon + create. -->
 				<div class="flex flex-col gap-3 p-3">
 					<div class="flex items-center justify-between">
-						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase"
-							>New tag</span
-						>
+						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">New tag</span>
 						<TagChip tag={newPreviewTag} size="sm" />
 					</div>
 
@@ -264,9 +256,7 @@
 						class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition"
 						class:bg-card-2={highlightedIndex === i}
 					>
-						<span
-							class="h-2.5 w-2.5 rounded-full"
-							style:background-color={tagColourVar(tag.colour)}
+						<span class="h-2.5 w-2.5 rounded-full" style:background-color={tagColourVar(tag.colour)}
 						></span>
 						{#if tag.icon}<span aria-hidden="true">{tag.icon}</span>{/if}
 						<span class="flex-1 truncate text-fg">{tag.name}</span>
