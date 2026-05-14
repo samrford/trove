@@ -20,6 +20,7 @@ export const PROJECT_EMOJIS = [
 	'🧪',
 	'🔬',
 	'🧰',
+	'🧶',
 	'⚡',
 	'🚀',
 	// digital

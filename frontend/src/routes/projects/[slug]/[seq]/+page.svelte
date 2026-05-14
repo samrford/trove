@@ -12,7 +12,6 @@
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import AppHeader from '$lib/components/AppHeader.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import StatusIcon from '$lib/components/StatusIcon.svelte';
 	import KindPicker from '$lib/components/KindPicker.svelte';
@@ -116,7 +115,6 @@
 </script>
 
 {#if !auth.loading && auth.user}
-	<AppHeader />
 	<main class="mx-auto max-w-3xl px-6 py-10">
 		<div class="mb-6">
 			<a
@@ -129,7 +127,7 @@
 		</div>
 
 		{#if notFound}
-			<div class="rounded-lg border border-line bg-card p-12 text-center">
+			<div class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">
 				<p class="text-fg-muted">No item with that reference.</p>
 				<p class="mt-1 text-xs text-fg-faint">It may have been deleted, or the link is wrong.</p>
 			</div>

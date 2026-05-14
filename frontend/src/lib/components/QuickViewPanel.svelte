@@ -2,22 +2,36 @@
 	import {
 		updateItem,
 		deleteItem,
+		attachTagToItem,
+		detachTagFromItem,
 		type Item,
 		type ItemKind,
 		type ItemStatus,
 		ITEM_KINDS,
 		ITEM_STATUSES
 	} from '$lib/api/items';
+	import { listTags, type Tag, type TagWithCount } from '$lib/api/tags';
 	import type { Project } from '$lib/api/projects';
 	import { ApiError } from '$lib/api';
 	import { animations } from '$lib/animations.svelte';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
+	import { tagColourFromName } from '$lib/tagColours';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import StatusIcon from './StatusIcon.svelte';
 	import ItemBody from './ItemBody.svelte';
+	import TagChip from './TagChip.svelte';
+	import TagCombobox from './TagCombobox.svelte';
 	import { fly } from 'svelte/transition';
 	import { backInOut } from 'svelte/easing';
-	import { X, ExternalLink, Trash2, Pencil, Check } from '@lucide/svelte';
+	import {
+		X,
+		ExternalLink,
+		Trash2,
+		Pencil,
+		Check,
+		ChevronLeft,
+		ChevronRight
+	} from '@lucide/svelte';
 
 	type Props = {
 		open?: boolean;
@@ -25,9 +39,19 @@
 		project: Project | null;
 		onUpdated?: (item: Item) => void;
 		onDeleted?: (item: Item) => void;
+		onPrev?: () => void;
+		onNext?: () => void;
 	};
 
-	let { open = $bindable(false), item, project, onUpdated, onDeleted }: Props = $props();
+	let {
+		open = $bindable(false),
+		item,
+		project,
+		onUpdated,
+		onDeleted,
+		onPrev,
+		onNext
+	}: Props = $props();
 
 	let actionError = $state<string | null>(null);
 	let deleteConfirmOpen = $state(false);
@@ -37,6 +61,47 @@
 	let editTitle = $state('');
 	let editBody = $state('');
 	let editKind = $state<ItemKind>('task');
+
+	let availableTags = $state<TagWithCount[]>([]);
+
+	async function refreshAvailableTags() {
+		try {
+			availableTags = await listTags();
+		} catch {
+			// Tag list is non-critical for edit; ignore.
+		}
+	}
+
+	async function handleAddTag(
+		t: Tag | { name: string; colour?: string | null; icon?: string | null }
+	) {
+		if (!item || !project) return;
+		try {
+			const tag =
+				'id' in t
+					? await attachTagToItem(project.slug, item.sequence, { tag_id: t.id })
+					: await attachTagToItem(project.slug, item.sequence, {
+							name: t.name,
+							colour: t.colour ?? tagColourFromName(t.name),
+							icon: t.icon ?? null
+						});
+			const updated = { ...item, tags: [...item.tags, tag] };
+			onUpdated?.(updated);
+		} catch (e) {
+			actionError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
+
+	async function handleRemoveTag(t: Tag) {
+		if (!item || !project) return;
+		try {
+			await detachTagFromItem(project.slug, item.sequence, t.slug);
+			const updated = { ...item, tags: item.tags.filter((x) => x.id !== t.id) };
+			onUpdated?.(updated);
+		} catch (e) {
+			actionError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
 
 	function close() {
 		if (editing) return; // don't lose unsaved edits via backdrop / X
@@ -51,6 +116,7 @@
 		editKind = item.kind;
 		actionError = null;
 		editing = true;
+		refreshAvailableTags();
 	}
 
 	function cancelEdit() {
@@ -85,28 +151,55 @@
 	// Width of the panel + small gap. Pushes the page content to the left so
 	// the panel sits alongside it instead of covering it. Tailwind `max-w-md` = 28rem.
 	const PANEL_OFFSET = '28rem';
+	// Below this breakpoint the panel becomes a full-width overlay instead of a
+	// side-by-side panel, so we skip the body offset.
+	const SIDE_BY_SIDE_QUERY = '(min-width: 640px)';
 
 	$effect(() => {
 		if (!open) return;
 
-		// Push page content left to make room for the panel.
 		const prevPadding = document.body.style.paddingRight;
 		const prevTransition = document.body.style.transition;
 		document.body.style.transition = 'padding-right 200ms ease';
-		document.body.style.paddingRight = PANEL_OFFSET;
+
+		const mq = window.matchMedia(SIDE_BY_SIDE_QUERY);
+		function applyOffset() {
+			document.body.style.paddingRight = mq.matches ? PANEL_OFFSET : '';
+		}
+		applyOffset();
+		mq.addEventListener('change', applyOffset);
 
 		function onKey(e: KeyboardEvent) {
-			if (e.key !== 'Escape') return;
-			if (editing) cancelEdit();
-			else {
-				open = false;
-				actionError = null;
+			if (e.key === 'Escape') {
+				if (editing) cancelEdit();
+				else {
+					open = false;
+					actionError = null;
+				}
+				return;
+			}
+			if (editing) return;
+			// Don't hijack arrow keys when the user is typing or interacting with a control.
+			const target = e.target as HTMLElement | null;
+			if (
+				target &&
+				(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+			) {
+				return;
+			}
+			if (e.key === 'ArrowLeft' && onPrev) {
+				e.preventDefault();
+				onPrev();
+			} else if (e.key === 'ArrowRight' && onNext) {
+				e.preventDefault();
+				onNext();
 			}
 		}
 		document.addEventListener('keydown', onKey);
 
 		return () => {
 			document.removeEventListener('keydown', onKey);
+			mq.removeEventListener('change', applyOffset);
 			document.body.style.paddingRight = prevPadding;
 			// Clear the transition shortly after so it doesn't linger on unrelated changes.
 			setTimeout(() => {
@@ -173,6 +266,14 @@
 </script>
 
 {#if open && item && project}
+	<!-- Mobile backdrop (panel becomes an overlay on small screens) -->
+	<button
+		type="button"
+		aria-label="Close"
+		onclick={close}
+		class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm sm:hidden"
+	></button>
+
 	<aside
 		transition:fly={{ x: 400, duration: 200 }}
 		class="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-card shadow-2xl"
@@ -186,6 +287,26 @@
 				<span class="font-mono text-xs text-fg-faint">#{item.sequence}</span>
 			</div>
 			<div class="flex items-center gap-1">
+				<button
+					type="button"
+					onclick={() => onPrev?.()}
+					disabled={!onPrev || editing}
+					aria-label="Previous item"
+					title="Previous item"
+					class="rounded-md p-1.5 text-fg-muted transition hover:bg-card-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+				>
+					<ChevronLeft class="h-4 w-4" />
+				</button>
+				<button
+					type="button"
+					onclick={() => onNext?.()}
+					disabled={!onNext || editing}
+					aria-label="Next item"
+					title="Next item"
+					class="rounded-md p-1.5 text-fg-muted transition hover:bg-card-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+				>
+					<ChevronRight class="h-4 w-4" />
+				</button>
 				{#if !editing}
 					<button
 						type="button"
@@ -253,18 +374,40 @@
 							class="resize-y rounded-md border border-line bg-card px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
 						></textarea>
 					</label>
+
+					<div class="flex flex-col gap-1.5">
+						<span class="text-xs font-medium tracking-wide text-fg-faint uppercase">Tags</span>
+						<TagCombobox
+							selected={item.tags}
+							{availableTags}
+							onAdd={handleAddTag}
+							onRemove={handleRemoveTag}
+							placeholder="Add tags…"
+						/>
+					</div>
 				</div>
 			</div>
 		{:else}
-			<!-- Read mode: inner card flips on item change -->
-			<div class="relative flex-1 px-4 py-4" style="perspective: {FLIP_PERSPECTIVE}px;">
+			<!-- Read mode: inner card flips on item change. Card sizes to its content
+				 but is capped at the available panel height (scrolls if longer). -->
+			<div
+				class="relative flex-1 overflow-hidden px-4 py-4"
+				style="perspective: {FLIP_PERSPECTIVE}px;"
+			>
 				{#key item.id}
 					<div
 						in:pageFlipIn
 						out:pageFlipOut
-						class="absolute inset-4 overflow-y-auto rounded-lg border border-line bg-card-2 p-5"
+						class="absolute top-4 right-4 left-4 max-h-[calc(100%-2rem)] overflow-y-auto rounded-lg border border-line bg-card-2 p-5"
 					>
 						<h2 class="text-xl font-semibold tracking-tight text-fg">{item.title}</h2>
+						{#if item.tags.length > 0}
+							<div class="mt-3 flex flex-wrap gap-1.5">
+								{#each item.tags as tag (tag.id)}
+									<TagChip {tag} size="sm" />
+								{/each}
+							</div>
+						{/if}
 						<ItemBody {item} class="mt-4" />
 					</div>
 				{/key}

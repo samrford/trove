@@ -4,19 +4,23 @@
 	import {
 		listItems,
 		updateItem,
+		detachTagFromItem,
 		type Item,
 		type ItemKind,
 		type ItemStatus,
+		type TagFilterMode,
 		ITEM_KINDS
 	} from '$lib/api/items';
+	import { listTagsForProject, type TagWithCount } from '$lib/api/tags';
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import AppHeader from '$lib/components/AppHeader.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import AddItemDialog from '$lib/components/AddItemDialog.svelte';
 	import QuickViewPanel from '$lib/components/QuickViewPanel.svelte';
 	import StatusIcon from '$lib/components/StatusIcon.svelte';
+	import ItemTagChip from '$lib/components/ItemTagChip.svelte';
+	import TagFilterPopover from '$lib/components/TagFilterPopover.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, KIND_PLURAL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { relativeTime } from '$lib/time';
@@ -24,11 +28,14 @@
 
 	let project = $state<Project | null>(null);
 	let items = $state<Item[] | null>(null);
+	let tagsInProject = $state<TagWithCount[]>([]);
 	let loadError = $state<string | null>(null);
 	// Transient errors from item-level actions (drag, list ops). Distinct from
 	// loadError so they don't masquerade as a project-load failure.
 	let itemError = $state<string | null>(null);
 	let kindFilter = $state<ItemKind | null>(null);
+	let selectedTagSlugs = $state<string[]>([]);
+	let tagMode = $state<TagFilterMode>('and');
 	let showDone = $state(false);
 	let showArchived = $state(false);
 	let deleteConfirmOpen = $state(false);
@@ -46,9 +53,26 @@
 		quickViewOpen = true;
 	}
 
+	function refreshTagsInProject() {
+		if (!project) return;
+		listTagsForProject(project.slug)
+			.then((tgs) => (tagsInProject = tgs))
+			.catch(() => {});
+	}
+
+	function sameTagSet(a: Item['tags'], b: Item['tags']) {
+		if (a.length !== b.length) return false;
+		const ids = new Set(a.map((t) => t.id));
+		return b.every((t) => ids.has(t.id));
+	}
+
 	function handleItemUpdated(updated: Item) {
+		const previous = items?.find((i) => i.id === updated.id);
 		items = items?.map((i) => (i.id === updated.id ? updated : i)) ?? null;
 		if (quickViewItem?.id === updated.id) quickViewItem = updated;
+		if (!previous || !sameTagSet(previous.tags, updated.tags)) {
+			refreshTagsInProject();
+		}
 	}
 
 	function handleItemDeleted(deleted: Item) {
@@ -57,10 +81,12 @@
 			quickViewOpen = false;
 			quickViewItem = null;
 		}
+		if (deleted.tags.length > 0) refreshTagsInProject();
 	}
 
 	function handleItemCreated(item: Item) {
 		items = [item, ...(items ?? [])];
+		if (item.tags.length > 0) refreshTagsInProject();
 	}
 
 	function handleDragStart(e: DragEvent, item: Item) {
@@ -123,10 +149,10 @@
 			getProject(slug)
 				.then((res) => {
 					project = res;
-					return listItems(res.slug);
+					return listTagsForProject(res.slug);
 				})
-				.then((res) => {
-					items = res;
+				.then((tgs) => {
+					tagsInProject = tgs;
 				})
 				.catch((e) => {
 					loadError = e instanceof ApiError ? e.message : String(e);
@@ -134,10 +160,70 @@
 		}
 	});
 
+	// Items load: fires on initial project load and whenever the tag filter
+	// changes. Server-side filter so AND/OR semantics match the backend exactly.
+	$effect(() => {
+		if (!project) return;
+		const opts = selectedTagSlugs.length > 0 ? { tags: selectedTagSlugs, tagMode } : undefined;
+		listItems(project.slug, opts)
+			.then((res) => (items = res))
+			.catch((e) => (itemError = e instanceof ApiError ? e.message : String(e)));
+	});
+
+	function toggleTagFilter(slug: string) {
+		if (selectedTagSlugs.includes(slug)) {
+			selectedTagSlugs = selectedTagSlugs.filter((s) => s !== slug);
+		} else {
+			selectedTagSlugs = [...selectedTagSlugs, slug];
+		}
+	}
+
+	async function handleDetachTag(item: Item, tagSlug: string) {
+		if (!project) return;
+		const snapshot = items;
+		// Optimistic remove
+		items =
+			items?.map((i) =>
+				i.id === item.id ? { ...i, tags: i.tags.filter((t) => t.slug !== tagSlug) } : i
+			) ?? null;
+		try {
+			await detachTagFromItem(project.slug, item.sequence, tagSlug);
+			refreshTagsInProject();
+		} catch (e) {
+			items = snapshot;
+			itemError = e instanceof ApiError ? e.message : String(e);
+		}
+	}
+
 	const filtered = $derived(items?.filter((i) => !kindFilter || i.kind === kindFilter) ?? []);
 
 	function bucket(status: ItemStatus): Item[] {
 		return filtered.filter((i) => i.status === status);
+	}
+
+	// Items in the order they appear on screen — used by the quick view panel
+	// to navigate prev/next through the currently filtered list.
+	const orderedItems = $derived([
+		...bucket('open'),
+		...bucket('in_progress'),
+		...bucket('done'),
+		...bucket('archived')
+	]);
+	const quickViewIndex = $derived(
+		quickViewItem ? orderedItems.findIndex((i) => i.id === quickViewItem!.id) : -1
+	);
+	const prevItem = $derived(quickViewIndex > 0 ? orderedItems[quickViewIndex - 1] : null);
+	const nextItem = $derived(
+		quickViewIndex >= 0 && quickViewIndex < orderedItems.length - 1
+			? orderedItems[quickViewIndex + 1]
+			: null
+	);
+
+	function goPrev() {
+		if (prevItem) quickViewItem = prevItem;
+	}
+	function goNext() {
+		if (nextItem) quickViewItem = nextItem;
 	}
 
 	async function performDelete() {
@@ -158,33 +244,42 @@
 		draggable="true"
 		ondragstart={(e) => handleDragStart(e, item)}
 		ondragend={handleDragEnd}
-		class="group flex cursor-grab items-center gap-3 px-4 py-2.5 transition hover:bg-card-2 active:cursor-grabbing"
+		class="group flex cursor-grab flex-col gap-1.5 px-4 py-2.5 transition hover:bg-card-2 active:cursor-grabbing"
 		class:opacity-40={draggingId === item.id}
 	>
-		<StatusIcon status={item.status} />
-		<button
-			type="button"
-			onclick={() => openQuickView(item)}
-			class="min-w-0 flex-1 truncate text-left text-sm text-fg hover:underline"
-		>
-			{item.title}
-		</button>
-		<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
-			{KIND_LABEL[item.kind]}
-		</span>
-		<a
-			href={`/projects/${project!.slug}/${item.sequence}`}
-			class="font-mono text-xs text-fg-faint hover:text-fg hover:underline"
-			title="Open full view"
-		>
-			#{item.sequence}
-		</a>
-		<span
-			class="w-10 text-right text-xs text-fg-faint"
-			title={new Date(item.updated_at).toLocaleString()}
-		>
-			{relativeTime(item.updated_at)}
-		</span>
+		{#if item.tags.length > 0}
+			<div class="flex flex-wrap items-center gap-1 pl-7">
+				{#each item.tags as tag (tag.id)}
+					<ItemTagChip {tag} onRemove={() => handleDetachTag(item, tag.slug)} />
+				{/each}
+			</div>
+		{/if}
+		<div class="flex items-center gap-3">
+			<StatusIcon status={item.status} />
+			<button
+				type="button"
+				onclick={() => openQuickView(item)}
+				class="min-w-0 flex-1 truncate text-left text-sm text-fg hover:underline"
+			>
+				{item.title}
+			</button>
+			<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
+				{KIND_LABEL[item.kind]}
+			</span>
+			<a
+				href={`/projects/${project!.slug}/${item.sequence}`}
+				class="font-mono text-xs text-fg-faint hover:text-fg hover:underline"
+				title="Open full view"
+			>
+				#{item.sequence}
+			</a>
+			<span
+				class="hidden w-10 text-right text-xs text-fg-faint sm:inline"
+				title={new Date(item.updated_at).toLocaleString()}
+			>
+				{relativeTime(item.updated_at)}
+			</span>
+		</div>
 	</li>
 {/snippet}
 
@@ -230,8 +325,7 @@
 {/snippet}
 
 {#if !auth.loading && auth.user}
-	<AppHeader />
-	<main class="mx-auto max-w-4xl px-6 py-10">
+	<main class="mx-auto max-w-6xl px-6 py-10">
 		<div class="mb-6">
 			<a
 				href="/"
@@ -253,13 +347,13 @@
 				class="mb-8 border-b-4 pb-6"
 				style:border-bottom-color={projectColourVar(project.colour)}
 			>
-				<div class="flex items-start gap-4">
+				<div class="flex items-start gap-3 sm:gap-4">
 					{#if project.icon}
-						<span class="text-4xl leading-none">{project.icon}</span>
+						<span class="text-3xl leading-none sm:text-4xl">{project.icon}</span>
 					{/if}
 					<div class="min-w-0 flex-1">
 						<div class="flex items-start justify-between gap-2">
-							<h1 class="text-3xl font-semibold tracking-tight text-fg">
+							<h1 class="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
 								{project.name}
 							</h1>
 							<div class="flex shrink-0 items-center gap-1">
@@ -319,6 +413,16 @@
 							{KIND_PLURAL[k]}
 						</button>
 					{/each}
+					{#if tagsInProject.length > 0}
+						<span class="mx-1 h-4 w-px bg-line"></span>
+						<TagFilterPopover
+							tags={tagsInProject}
+							selectedSlugs={selectedTagSlugs}
+							mode={tagMode}
+							onToggle={toggleTagFilter}
+							onModeChange={(m) => (tagMode = m)}
+						/>
+					{/if}
 					<span class="flex-1"></span>
 					<button
 						type="button"
@@ -347,7 +451,7 @@
 				{/if}
 
 				{#if items.length === 0}
-					<section class="rounded-lg border border-line bg-card p-12 text-center">
+					<section class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">
 						<p class="text-fg-muted">Your trove is empty — toss something in.</p>
 					</section>
 				{:else}
@@ -426,6 +530,8 @@
 				{project}
 				onUpdated={handleItemUpdated}
 				onDeleted={handleItemDeleted}
+				onPrev={prevItem ? goPrev : undefined}
+				onNext={nextItem ? goNext : undefined}
 			/>
 		{/if}
 	</main>

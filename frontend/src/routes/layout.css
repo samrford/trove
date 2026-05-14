@@ -29,6 +29,17 @@
 	--color-project-rust: light-dark(oklch(58% 0.17 35), oklch(72% 0.16 35));
 	--color-project-plum: light-dark(oklch(52% 0.13 340), oklch(72% 0.12 340));
 	--color-project-slate: light-dark(oklch(55% 0.04 240), oklch(72% 0.04 240));
+
+	/* Tag palette — jewel tones. Rendered as soft-tinted chips (~12% bg + full
+	 * saturation text), so base values lean vibrant. */
+	--color-tag-ruby: light-dark(oklch(55% 0.2 25), oklch(72% 0.18 25));
+	--color-tag-emerald: light-dark(oklch(55% 0.15 155), oklch(72% 0.16 155));
+	--color-tag-sapphire: light-dark(oklch(52% 0.18 250), oklch(70% 0.17 250));
+	--color-tag-amethyst: light-dark(oklch(52% 0.16 305), oklch(72% 0.15 305));
+	--color-tag-citrine: light-dark(oklch(70% 0.16 90), oklch(82% 0.15 90));
+	--color-tag-coral: light-dark(oklch(62% 0.18 15), oklch(75% 0.16 15));
+	--color-tag-turquoise: light-dark(oklch(60% 0.13 200), oklch(75% 0.13 200));
+	--color-tag-indigo: light-dark(oklch(45% 0.17 275), oklch(68% 0.18 275));
 }
 
 @theme inline {

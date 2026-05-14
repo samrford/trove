@@ -38,6 +38,47 @@ func (h *ItemsHandler) HandleCollection(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// HandleItemTags serves /v1/projects/{slug}/items/{seq}/tags — POST (attach).
+func (h *ItemsHandler) HandleItemTags(w http.ResponseWriter, r *http.Request) {
+	slugOrID := r.PathValue("slug")
+	seqStr := r.PathValue("seq")
+	if slugOrID == "" || seqStr == "" {
+		http.Error(w, `{"error":"Project + item required"}`, http.StatusBadRequest)
+		return
+	}
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq < 1 {
+		http.Error(w, `{"error":"Invalid item sequence"}`, http.StatusBadRequest)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	h.attachTag(w, r, slugOrID, seq)
+}
+
+// HandleItemTagByID serves /v1/projects/{slug}/items/{seq}/tags/{tagSlug} — DELETE.
+func (h *ItemsHandler) HandleItemTagByID(w http.ResponseWriter, r *http.Request) {
+	slugOrID := r.PathValue("slug")
+	seqStr := r.PathValue("seq")
+	tagSlug := r.PathValue("tagSlug")
+	if slugOrID == "" || seqStr == "" || tagSlug == "" {
+		http.Error(w, `{"error":"Project + item + tag required"}`, http.StatusBadRequest)
+		return
+	}
+	seq, err := strconv.Atoi(seqStr)
+	if err != nil || seq < 1 {
+		http.Error(w, `{"error":"Invalid item sequence"}`, http.StatusBadRequest)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	h.detachTag(w, r, slugOrID, seq, tagSlug)
+}
+
 // HandleByID serves /v1/projects/{slug}/items/{seq} — GET, PATCH, DELETE.
 func (h *ItemsHandler) HandleByID(w http.ResponseWriter, r *http.Request) {
 	slugOrID := r.PathValue("slug")
@@ -97,8 +138,12 @@ func (h *ItemsHandler) list(w http.ResponseWriter, r *http.Request, slugOrID str
 		return
 	}
 
-	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
-	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	q := r.URL.Query()
+	kind := strings.TrimSpace(q.Get("kind"))
+	status := strings.TrimSpace(q.Get("status"))
+	tagSlugs := q["tag"]
+	tagMode := strings.ToLower(strings.TrimSpace(q.Get("tag_mode")))
+
 	if kind != "" && !data.IsValidItemKind(kind) {
 		http.Error(w, `{"error":"Invalid kind"}`, http.StatusBadRequest)
 		return
@@ -107,12 +152,38 @@ func (h *ItemsHandler) list(w http.ResponseWriter, r *http.Request, slugOrID str
 		http.Error(w, `{"error":"Invalid status"}`, http.StatusBadRequest)
 		return
 	}
+	if tagMode != "" && tagMode != "and" && tagMode != "or" {
+		http.Error(w, `{"error":"tag_mode must be 'and' or 'or'"}`, http.StatusBadRequest)
+		return
+	}
 
-	items, err := data.ListItemsForProject(r.Context(), h.db, project.ID, kind, status)
+	items, err := data.ListItemsForProject(r.Context(), h.db, project.ID, data.ItemFilter{
+		Kind:     kind,
+		Status:   status,
+		TagSlugs: tagSlugs,
+		TagMode:  tagMode,
+	})
 	if err != nil {
 		log.Printf("ListItemsForProject: %v", err)
 		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
 		return
+	}
+
+	// Batch-fetch tags so item cards can render chips in one round trip.
+	itemIDs := make([]string, len(items))
+	for i, it := range items {
+		itemIDs[i] = it.ID
+	}
+	tagsByItem, err := data.GetTagsForItems(r.Context(), h.db, itemIDs)
+	if err != nil {
+		log.Printf("GetTagsForItems: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	for i := range items {
+		if tags := tagsByItem[items[i].ID]; tags != nil {
+			items[i].Tags = tags
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -183,6 +254,14 @@ func (h *ItemsHandler) get(w http.ResponseWriter, r *http.Request, slugOrID stri
 		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
 		return
 	}
+
+	tags, err := data.GetTagsForItem(r.Context(), h.db, item.ID)
+	if err != nil {
+		log.Printf("GetTagsForItem: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	item.Tags = tags
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(item); err != nil {
@@ -270,10 +349,131 @@ func (h *ItemsHandler) update(w http.ResponseWriter, r *http.Request, slugOrID s
 		return
 	}
 
+	tags, err := data.GetTagsForItem(r.Context(), h.db, updated.ID)
+	if err != nil {
+		log.Printf("GetTagsForItem: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	updated.Tags = tags
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(updated); err != nil {
 		log.Printf("encode item: %v", err)
 	}
+}
+
+// attachTag adds a tag to an item. Accepts {tag_id} | {tag_slug} | {name}
+// (precedence in that order). When given a name, performs find-or-create
+// against the user's tag namespace (case-insensitive auto-merge).
+func (h *ItemsHandler) attachTag(w http.ResponseWriter, r *http.Request, slugOrID string, seq int) {
+	project, ok := h.resolveProject(w, r, slugOrID)
+	if !ok {
+		return
+	}
+	userID := GetUserID(r.Context())
+	if !requireOwner(w, project, userID) {
+		return
+	}
+
+	item, err := data.GetItemBySequence(r.Context(), h.db, project.ID, seq)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, `{"error":"Item not found"}`, http.StatusNotFound)
+			return
+		}
+		log.Printf("GetItemBySequence: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	var body struct {
+		TagID   string  `json:"tag_id"`
+		TagSlug string  `json:"tag_slug"`
+		Name    string  `json:"name"`
+		Colour  *string `json:"colour"`
+		Icon    *string `json:"icon"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":"Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+
+	var tag *data.Tag
+	switch {
+	case body.TagID != "":
+		tag, err = data.GetTagForUser(r.Context(), h.db, userID, body.TagID)
+	case body.TagSlug != "":
+		tag, err = data.GetTagForUser(r.Context(), h.db, userID, body.TagSlug)
+	case strings.TrimSpace(body.Name) != "":
+		tag, _, err = data.FindOrCreateTag(r.Context(), h.db, userID,
+			body.Name, "", nil, body.Icon, body.Colour)
+	default:
+		http.Error(w, `{"error":"tag_id, tag_slug, or name required"}`, http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, `{"error":"Tag not found"}`, http.StatusNotFound)
+			return
+		}
+		log.Printf("resolve tag: %v", err)
+		http.Error(w, `{"error":"Failed to resolve tag"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if err := data.AttachTagToItem(r.Context(), h.db, item.ID, tag.ID, userID); err != nil {
+		log.Printf("AttachTagToItem: %v", err)
+		http.Error(w, `{"error":"Failed to attach tag"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(tag); err != nil {
+		log.Printf("encode tag: %v", err)
+	}
+}
+
+func (h *ItemsHandler) detachTag(w http.ResponseWriter, r *http.Request, slugOrID string, seq int, tagSlug string) {
+	project, ok := h.resolveProject(w, r, slugOrID)
+	if !ok {
+		return
+	}
+	userID := GetUserID(r.Context())
+	if !requireOwner(w, project, userID) {
+		return
+	}
+
+	item, err := data.GetItemBySequence(r.Context(), h.db, project.ID, seq)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, `{"error":"Item not found"}`, http.StatusNotFound)
+			return
+		}
+		log.Printf("GetItemBySequence: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	tag, err := data.GetTagForUser(r.Context(), h.db, userID, tagSlug)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, `{"error":"Tag not found"}`, http.StatusNotFound)
+			return
+		}
+		log.Printf("GetTagForUser: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if err := data.DetachTagFromItem(r.Context(), h.db, item.ID, tag.ID); err != nil {
+		log.Printf("DetachTagFromItem: %v", err)
+		http.Error(w, `{"error":"Failed to detach tag"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *ItemsHandler) delete(w http.ResponseWriter, r *http.Request, slugOrID string, seq int) {

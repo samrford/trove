@@ -29,7 +29,7 @@
 	{/snippet}
 
 	{#snippet children({ close })}
-		<div class="flex max-w-md flex-wrap gap-1">
+		<div class="flex max-w-xs flex-wrap gap-1 sm:max-w-md">
 			<button
 				type="button"
 				onclick={() => {
