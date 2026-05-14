@@ -134,7 +134,7 @@ func TestCreateProject_SlugTaken(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO projects`).
 		WithArgs("foo", "Foo", sql.NullString{}, sql.NullString{}, sql.NullString{}, "u-1").
-		WillReturnError(&pq.Error{Code: "23505"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation})
 	mock.ExpectRollback()
 
 	_, err := CreateProject(context.Background(), db, "u-1", "foo", "Foo", nil, nil, nil)
@@ -237,7 +237,7 @@ func TestUpdateProject_SlugTaken(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`UPDATE projects`).
 		WithArgs("Foo", "foo", sql.NullString{}, sql.NullString{}, sql.NullString{}, "p-1").
-		WillReturnError(&pq.Error{Code: "23505"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation})
 
 	if _, err := UpdateProject(context.Background(), db, "p-1", "Foo", "foo", nil, nil, nil); !errors.Is(err, ErrSlugTaken) {
 		t.Fatalf("expected ErrSlugTaken, got %v", err)

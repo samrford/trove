@@ -88,7 +88,7 @@ func CreateProject(ctx context.Context, db *sql.DB, ownerID, slug, name string, 
 		&p.OwnerID, &p.ArchivedAt, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == PGUniqueViolation {
 			return nil, ErrSlugTaken
 		}
 		return nil, err
@@ -155,7 +155,7 @@ func UpdateProject(ctx context.Context, db *sql.DB, projectID, name, slug string
 		&p.OwnerID, &p.ArchivedAt, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == PGUniqueViolation {
 			return nil, ErrSlugTaken
 		}
 		return nil, err

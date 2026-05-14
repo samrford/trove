@@ -17,6 +17,10 @@ const (
 	ItemKindTask       ItemKind = "task"
 )
 
+// AllItemKinds enumerates every valid ItemKind. The validator iterates it,
+// so tests can drive table-based assertions off the same source of truth.
+var AllItemKinds = []ItemKind{ItemKindBrainstorm, ItemKindTask}
+
 type ItemStatus string
 
 const (
@@ -26,18 +30,23 @@ const (
 	ItemStatusArchived   ItemStatus = "archived"
 )
 
+// AllItemStatuses enumerates every valid ItemStatus.
+var AllItemStatuses = []ItemStatus{ItemStatusOpen, ItemStatusInProgress, ItemStatusDone, ItemStatusArchived}
+
 func IsValidItemKind(k string) bool {
-	switch ItemKind(k) {
-	case ItemKindBrainstorm, ItemKindTask:
-		return true
+	for _, valid := range AllItemKinds {
+		if string(valid) == k {
+			return true
+		}
 	}
 	return false
 }
 
 func IsValidItemStatus(s string) bool {
-	switch ItemStatus(s) {
-	case ItemStatusOpen, ItemStatusInProgress, ItemStatusDone, ItemStatusArchived:
-		return true
+	for _, valid := range AllItemStatuses {
+		if string(valid) == s {
+			return true
+		}
 	}
 	return false
 }

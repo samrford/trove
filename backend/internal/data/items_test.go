@@ -12,8 +12,8 @@ import (
 )
 
 func TestIsValidItemKind(t *testing.T) {
-	for _, k := range []string{"brainstorm", "task"} {
-		if !IsValidItemKind(k) {
+	for _, k := range AllItemKinds {
+		if !IsValidItemKind(string(k)) {
 			t.Errorf("%q should be valid", k)
 		}
 	}
@@ -25,8 +25,8 @@ func TestIsValidItemKind(t *testing.T) {
 }
 
 func TestIsValidItemStatus(t *testing.T) {
-	for _, s := range []string{"open", "in_progress", "done", "archived"} {
-		if !IsValidItemStatus(s) {
+	for _, s := range AllItemStatuses {
+		if !IsValidItemStatus(string(s)) {
 			t.Errorf("%q should be valid", s)
 		}
 	}
@@ -41,7 +41,7 @@ func itemRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "project_id", "sequence", "kind", "status", "title", "body",
 		"position", "creator_id", "created_at", "updated_at",
-	}).AddRow("i-1", "p-1", 1, "task", "open", "Title", nil, 1.0, "u-1", time.Now(), time.Now())
+	}).AddRow("i-1", "p-1", 1, string(ItemKindTask), string(ItemStatusOpen), "Title", nil, 1.0, "u-1", time.Now(), time.Now())
 }
 
 func TestCreateItem_Success(t *testing.T) {
@@ -146,10 +146,13 @@ func TestListItemsForProject_NoFilters(t *testing.T) {
 func TestListItemsForProject_KindAndStatus(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`i\.project_id = \$1 AND i\.kind = \$2 AND i\.status = \$3`).
-		WithArgs("p-1", "task", "open").
+		WithArgs("p-1", string(ItemKindTask), string(ItemStatusOpen)).
 		WillReturnRows(itemRows())
 
-	if _, err := ListItemsForProject(context.Background(), db, "p-1", ItemFilter{Kind: "task", Status: "open"}); err != nil {
+	if _, err := ListItemsForProject(context.Background(), db, "p-1", ItemFilter{
+		Kind:   string(ItemKindTask),
+		Status: string(ItemStatusOpen),
+	}); err != nil {
 		t.Fatalf("ListItemsForProject: %v", err)
 	}
 }

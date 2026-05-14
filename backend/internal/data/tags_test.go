@@ -88,7 +88,7 @@ func TestFindOrCreateTag_AutoMerge(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`INSERT INTO tags`).
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "u-1").
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_normalised_unique"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: ConstraintTagsOwnerNormalisedUnique})
 	mock.ExpectQuery(`SELECT .* FROM tags WHERE user_id = \$1 AND name_normalised = \$2`).
 		WithArgs("u-1", "bug").
 		WillReturnRows(tagRows())
@@ -106,7 +106,7 @@ func TestFindOrCreateTag_SlugTaken(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`INSERT INTO tags`).
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "u-1").
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_slug_unique"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: ConstraintTagsOwnerSlugUnique})
 
 	if _, _, err := FindOrCreateTag(context.Background(), db, "u-1", "Bug", "bug", nil, nil, nil); !errors.Is(err, ErrTagSlugTaken) {
 		t.Fatalf("expected ErrTagSlugTaken, got %v", err)
@@ -117,7 +117,7 @@ func TestFindOrCreateTag_UnknownPQError(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`INSERT INTO tags`).
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "u-1").
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "something_else"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: "something_else"})
 
 	if _, _, err := FindOrCreateTag(context.Background(), db, "u-1", "Bug", "bug", nil, nil, nil); err == nil {
 		t.Fatal("expected error")
@@ -223,7 +223,7 @@ func TestUpdateTag_SlugTaken(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`UPDATE tags`).
 		WithArgs("Bug", "bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "t-1").
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_slug_unique"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: ConstraintTagsOwnerSlugUnique})
 
 	if _, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil); !errors.Is(err, ErrTagSlugTaken) {
 		t.Fatalf("expected ErrTagSlugTaken, got %v", err)
@@ -234,7 +234,7 @@ func TestUpdateTag_NormalisedConflict(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(`UPDATE tags`).
 		WithArgs("Bug", "bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "t-1").
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_normalised_unique"})
+		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: ConstraintTagsOwnerNormalisedUnique})
 
 	if _, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil); err == nil {
 		t.Fatal("expected error")

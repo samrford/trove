@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,13 +11,22 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
+
+	"trove/backend/internal/data"
 )
+
+// kindTaskBody / kindAllBody build JSON request bodies referencing the typed
+// enum constants, so a renamed enum value breaks these tests rather than
+// silently shipping stale strings.
+func kindTaskBody(title string) string {
+	return fmt.Sprintf(`{"kind":%q,"title":%q}`, string(data.ItemKindTask), title)
+}
 
 func itemRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "project_id", "sequence", "kind", "status", "title", "body",
 		"position", "creator_id", "created_at", "updated_at",
-	}).AddRow(testItemID, testProjectID, 1, "task", "open", "T", nil, 1.0, testUserID, time.Now(), time.Now())
+	}).AddRow(testItemID, testProjectID, 1, string(data.ItemKindTask), string(data.ItemStatusOpen), "T", nil, 1.0, testUserID, time.Now(), time.Now())
 }
 
 func mockProjectLookup(t *testing.T, mock sqlmock.Sqlmock, ownerID string) {
@@ -196,12 +206,12 @@ func TestItems_Create_Success(t *testing.T) {
 		WithArgs(testProjectID).
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(1))
 	mock.ExpectQuery(`INSERT INTO items`).
-		WithArgs(testProjectID, 1, "task", "T", sql.NullString{}, testUserID).
+		WithArgs(testProjectID, 1, string(data.ItemKindTask), "T", sql.NullString{}, testUserID).
 		WillReturnRows(itemRows())
 	mock.ExpectCommit()
 
 	h := NewItemsHandler(db)
-	r := itemReq("POST", "/v1/projects/foo/items", `{"kind":"task","title":"T"}`, "foo", "")
+	r := itemReq("POST", "/v1/projects/foo/items", kindTaskBody("T"), "foo", "")
 	w := httptest.NewRecorder()
 	h.HandleCollection(w, r)
 	if w.Code != http.StatusCreated {
@@ -214,7 +224,7 @@ func TestItems_Create_Forbidden(t *testing.T) {
 	mockProjectLookup(t, mock, "other-owner")
 
 	h := NewItemsHandler(db)
-	r := itemReq("POST", "/v1/projects/foo/items", `{"kind":"task","title":"T"}`, "foo", "")
+	r := itemReq("POST", "/v1/projects/foo/items", kindTaskBody("T"), "foo", "")
 	w := httptest.NewRecorder()
 	h.HandleCollection(w, r)
 	if w.Code != http.StatusForbidden {
@@ -240,7 +250,7 @@ func TestItems_Create_MissingTitle(t *testing.T) {
 	mockProjectLookup(t, mock, testUserID)
 
 	h := NewItemsHandler(db)
-	r := itemReq("POST", "/v1/projects/foo/items", `{"kind":"task","title":"   "}`, "foo", "")
+	r := itemReq("POST", "/v1/projects/foo/items", kindTaskBody("   "), "foo", "")
 	w := httptest.NewRecorder()
 	h.HandleCollection(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -267,7 +277,7 @@ func TestItems_Create_DBError(t *testing.T) {
 	mock.ExpectBegin().WillReturnError(errors.New("nope"))
 
 	h := NewItemsHandler(db)
-	r := itemReq("POST", "/v1/projects/foo/items", `{"kind":"task","title":"T"}`, "foo", "")
+	r := itemReq("POST", "/v1/projects/foo/items", kindTaskBody("T"), "foo", "")
 	w := httptest.NewRecorder()
 	h.HandleCollection(w, r)
 	if w.Code != http.StatusInternalServerError {
@@ -438,7 +448,7 @@ func TestItems_Update_AllFields(t *testing.T) {
 		WithArgs(testProjectID, 1).
 		WillReturnRows(itemRows())
 	mock.ExpectQuery(`UPDATE items SET`).
-		WithArgs("New", "body", "task", "done", 1.5, testItemID).
+		WithArgs("New", "body", string(data.ItemKindTask), string(data.ItemStatusDone), 1.5, testItemID).
 		WillReturnRows(itemRows())
 	mock.ExpectQuery(`FROM tags t\s+JOIN item_tags`).
 		WithArgs(testItemID).
@@ -449,7 +459,8 @@ func TestItems_Update_AllFields(t *testing.T) {
 
 	h := NewItemsHandler(db)
 	r := itemReq("PATCH", "/v1/projects/foo/items/1",
-		`{"title":"New","body":"body","kind":"task","status":"done","position":1.5}`,
+		fmt.Sprintf(`{"title":"New","body":"body","kind":%q,"status":%q,"position":1.5}`,
+			string(data.ItemKindTask), string(data.ItemStatusDone)),
 		"foo", "1")
 	w := httptest.NewRecorder()
 	h.HandleByID(w, r)

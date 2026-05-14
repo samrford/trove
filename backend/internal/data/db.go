@@ -7,12 +7,22 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/pressly/goose/v3"
 )
 
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
+
+// Postgres SQLSTATE codes & schema constraint names we match on to classify
+// errors. Exported so handler-layer tests can construct identical pq.Error
+// shapes without re-stringifying values by hand.
+const (
+	PGUniqueViolation pq.ErrorCode = "23505"
+
+	ConstraintTagsOwnerSlugUnique       = "tags_owner_slug_unique"
+	ConstraintTagsOwnerNormalisedUnique = "tags_owner_normalised_unique"
+)
 
 // InitDB connects to the database, retries on failure, then runs migrations.
 func InitDB(connURL string) (*sql.DB, error) {

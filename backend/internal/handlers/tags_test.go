@@ -11,6 +11,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
+
+	"trove/backend/internal/data"
 )
 
 func tagReqWithSlug(method, path, body, slug string) *http.Request {
@@ -85,7 +87,7 @@ func TestTags_Create_AutoMerge(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery(`INSERT INTO tags`).
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, testUserID).
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_normalised_unique"})
+		WillReturnError(&pq.Error{Code: data.PGUniqueViolation, Constraint: data.ConstraintTagsOwnerNormalisedUnique})
 	mock.ExpectQuery(`FROM tags WHERE user_id = \$1 AND name_normalised = \$2`).
 		WithArgs(testUserID, "bug").
 		WillReturnRows(tagRows())
@@ -136,7 +138,7 @@ func TestTags_Create_SlugTaken(t *testing.T) {
 	db, mock := newMockDB(t)
 	mock.ExpectQuery(`INSERT INTO tags`).
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, testUserID).
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_slug_unique"})
+		WillReturnError(&pq.Error{Code: data.PGUniqueViolation, Constraint: data.ConstraintTagsOwnerSlugUnique})
 
 	h := NewTagsHandler(db)
 	r := authedReq("POST", "/v1/tags", `{"name":"Bug","slug":"bug"}`)
@@ -414,7 +416,7 @@ func TestTags_Update_SlugTaken(t *testing.T) {
 		WillReturnRows(tagRows())
 	mock.ExpectQuery(`UPDATE tags`).
 		WithArgs("Bug", "bug", "bug2", sql.NullString{}, sql.NullString{}, sql.NullString{}, testTagID).
-		WillReturnError(&pq.Error{Code: "23505", Constraint: "tags_owner_slug_unique"})
+		WillReturnError(&pq.Error{Code: data.PGUniqueViolation, Constraint: data.ConstraintTagsOwnerSlugUnique})
 
 	h := NewTagsHandler(db)
 	r := authedReq("PATCH", "/v1/tags/bug", `{"name":"Bug","slug":"bug2"}`)

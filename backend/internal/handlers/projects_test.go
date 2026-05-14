@@ -11,6 +11,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
+
+	"trove/backend/internal/data"
 )
 
 func projectRows() *sqlmock.Rows {
@@ -119,7 +121,7 @@ func TestProjects_Create_SlugTaken(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO projects`).
 		WithArgs("foo", "Foo", sql.NullString{}, sql.NullString{}, sql.NullString{}, testUserID).
-		WillReturnError(&pq.Error{Code: "23505"})
+		WillReturnError(&pq.Error{Code: data.PGUniqueViolation})
 	mock.ExpectRollback()
 
 	h := NewProjectsHandler(db)
@@ -415,7 +417,7 @@ func TestProjects_Update_SlugTaken(t *testing.T) {
 		WillReturnRows(projectRows())
 	mock.ExpectQuery(`UPDATE projects`).
 		WithArgs("Foo", "bar", sql.NullString{}, sql.NullString{}, sql.NullString{}, testProjectID).
-		WillReturnError(&pq.Error{Code: "23505"})
+		WillReturnError(&pq.Error{Code: data.PGUniqueViolation})
 
 	h := NewProjectsHandler(db)
 	r := authedReq("PATCH", "/v1/projects/foo", `{"name":"Foo","slug":"bar"}`)
