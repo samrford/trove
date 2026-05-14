@@ -126,7 +126,7 @@
 <dialog
 	bind:this={dialog}
 	onclose={handleCancel}
-	class="m-auto w-full max-w-lg rounded-lg border border-line bg-card p-6 text-fg shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+	class="m-auto w-[calc(100%-1rem)] max-w-lg rounded-lg border border-line bg-card p-4 text-fg shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm sm:p-6"
 >
 	<form onsubmit={handleSubmit} class="flex flex-col gap-4">
 		<h2 class="text-lg font-semibold tracking-tight text-fg">New item</h2>

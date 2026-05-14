@@ -3,7 +3,6 @@
 	import { listTags, type TagWithCount } from '$lib/api/tags';
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
-	import AppHeader from '$lib/components/AppHeader.svelte';
 	import TagChip from '$lib/components/TagChip.svelte';
 	import { Plus, Tag as TagIcon } from '@lucide/svelte';
 
@@ -26,7 +25,6 @@
 </script>
 
 {#if !auth.loading && auth.user}
-	<AppHeader />
 	<main class="mx-auto max-w-5xl px-6 py-10">
 		<div class="mb-8 flex items-center justify-between">
 			<div>
@@ -55,7 +53,7 @@
 		{#if tags === null && !error}
 			<p class="text-sm text-fg-faint">Loading…</p>
 		{:else if tags && tags.length === 0}
-			<div class="rounded-lg border border-line bg-card p-12 text-center">
+			<div class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">
 				<TagIcon class="mx-auto h-10 w-10 text-fg-faint" />
 				<h2 class="mt-4 text-lg font-medium text-fg">No tags yet</h2>
 				<p class="mx-auto mt-2 max-w-md text-sm text-fg-muted">

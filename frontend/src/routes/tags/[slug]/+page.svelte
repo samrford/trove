@@ -12,7 +12,6 @@
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import AppHeader from '$lib/components/AppHeader.svelte';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
 	import SlugField, { type SlugStatus } from '$lib/components/SlugField.svelte';
 	import TagChip from '$lib/components/TagChip.svelte';
@@ -150,7 +149,6 @@
 </script>
 
 {#if !auth.loading && auth.user}
-	<AppHeader />
 	<main class="mx-auto max-w-2xl px-6 py-10">
 		<div class="mb-8">
 			<a

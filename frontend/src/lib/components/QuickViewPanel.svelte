@@ -23,7 +23,15 @@
 	import TagCombobox from './TagCombobox.svelte';
 	import { fly } from 'svelte/transition';
 	import { backInOut } from 'svelte/easing';
-	import { X, ExternalLink, Trash2, Pencil, Check } from '@lucide/svelte';
+	import {
+		X,
+		ExternalLink,
+		Trash2,
+		Pencil,
+		Check,
+		ChevronLeft,
+		ChevronRight
+	} from '@lucide/svelte';
 
 	type Props = {
 		open?: boolean;
@@ -31,9 +39,19 @@
 		project: Project | null;
 		onUpdated?: (item: Item) => void;
 		onDeleted?: (item: Item) => void;
+		onPrev?: () => void;
+		onNext?: () => void;
 	};
 
-	let { open = $bindable(false), item, project, onUpdated, onDeleted }: Props = $props();
+	let {
+		open = $bindable(false),
+		item,
+		project,
+		onUpdated,
+		onDeleted,
+		onPrev,
+		onNext
+	}: Props = $props();
 
 	let actionError = $state<string | null>(null);
 	let deleteConfirmOpen = $state(false);
@@ -133,28 +151,55 @@
 	// Width of the panel + small gap. Pushes the page content to the left so
 	// the panel sits alongside it instead of covering it. Tailwind `max-w-md` = 28rem.
 	const PANEL_OFFSET = '28rem';
+	// Below this breakpoint the panel becomes a full-width overlay instead of a
+	// side-by-side panel, so we skip the body offset.
+	const SIDE_BY_SIDE_QUERY = '(min-width: 640px)';
 
 	$effect(() => {
 		if (!open) return;
 
-		// Push page content left to make room for the panel.
 		const prevPadding = document.body.style.paddingRight;
 		const prevTransition = document.body.style.transition;
 		document.body.style.transition = 'padding-right 200ms ease';
-		document.body.style.paddingRight = PANEL_OFFSET;
+
+		const mq = window.matchMedia(SIDE_BY_SIDE_QUERY);
+		function applyOffset() {
+			document.body.style.paddingRight = mq.matches ? PANEL_OFFSET : '';
+		}
+		applyOffset();
+		mq.addEventListener('change', applyOffset);
 
 		function onKey(e: KeyboardEvent) {
-			if (e.key !== 'Escape') return;
-			if (editing) cancelEdit();
-			else {
-				open = false;
-				actionError = null;
+			if (e.key === 'Escape') {
+				if (editing) cancelEdit();
+				else {
+					open = false;
+					actionError = null;
+				}
+				return;
+			}
+			if (editing) return;
+			// Don't hijack arrow keys when the user is typing or interacting with a control.
+			const target = e.target as HTMLElement | null;
+			if (
+				target &&
+				(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+			) {
+				return;
+			}
+			if (e.key === 'ArrowLeft' && onPrev) {
+				e.preventDefault();
+				onPrev();
+			} else if (e.key === 'ArrowRight' && onNext) {
+				e.preventDefault();
+				onNext();
 			}
 		}
 		document.addEventListener('keydown', onKey);
 
 		return () => {
 			document.removeEventListener('keydown', onKey);
+			mq.removeEventListener('change', applyOffset);
 			document.body.style.paddingRight = prevPadding;
 			// Clear the transition shortly after so it doesn't linger on unrelated changes.
 			setTimeout(() => {
@@ -221,6 +266,14 @@
 </script>
 
 {#if open && item && project}
+	<!-- Mobile backdrop (panel becomes an overlay on small screens) -->
+	<button
+		type="button"
+		aria-label="Close"
+		onclick={close}
+		class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm sm:hidden"
+	></button>
+
 	<aside
 		transition:fly={{ x: 400, duration: 200 }}
 		class="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-line bg-card shadow-2xl"
@@ -234,6 +287,26 @@
 				<span class="font-mono text-xs text-fg-faint">#{item.sequence}</span>
 			</div>
 			<div class="flex items-center gap-1">
+				<button
+					type="button"
+					onclick={() => onPrev?.()}
+					disabled={!onPrev || editing}
+					aria-label="Previous item"
+					title="Previous item"
+					class="rounded-md p-1.5 text-fg-muted transition hover:bg-card-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+				>
+					<ChevronLeft class="h-4 w-4" />
+				</button>
+				<button
+					type="button"
+					onclick={() => onNext?.()}
+					disabled={!onNext || editing}
+					aria-label="Next item"
+					title="Next item"
+					class="rounded-md p-1.5 text-fg-muted transition hover:bg-card-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+				>
+					<ChevronRight class="h-4 w-4" />
+				</button>
 				{#if !editing}
 					<button
 						type="button"
@@ -315,13 +388,17 @@
 				</div>
 			</div>
 		{:else}
-			<!-- Read mode: inner card flips on item change -->
-			<div class="relative flex-1 px-4 py-4" style="perspective: {FLIP_PERSPECTIVE}px;">
+			<!-- Read mode: inner card flips on item change. Card sizes to its content
+				 but is capped at the available panel height (scrolls if longer). -->
+			<div
+				class="relative flex-1 overflow-hidden px-4 py-4"
+				style="perspective: {FLIP_PERSPECTIVE}px;"
+			>
 				{#key item.id}
 					<div
 						in:pageFlipIn
 						out:pageFlipOut
-						class="absolute inset-4 overflow-y-auto rounded-lg border border-line bg-card-2 p-5"
+						class="absolute top-4 right-4 left-4 max-h-[calc(100%-2rem)] overflow-y-auto rounded-lg border border-line bg-card-2 p-5"
 					>
 						<h2 class="text-xl font-semibold tracking-tight text-fg">{item.title}</h2>
 						{#if item.tags.length > 0}

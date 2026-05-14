@@ -43,7 +43,7 @@
 <dialog
 	bind:this={dialog}
 	onclose={handleCancel}
-	class="m-auto w-full max-w-md rounded-lg border border-line bg-card p-6 text-fg shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+	class="m-auto w-[calc(100%-1rem)] max-w-md rounded-lg border border-line bg-card p-4 text-fg shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm sm:p-6"
 >
 	<h2 class="text-lg font-semibold tracking-tight text-fg">{title}</h2>
 	<p class="mt-2 text-sm text-fg-muted">{message}</p>

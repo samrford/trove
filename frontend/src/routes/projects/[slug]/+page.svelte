@@ -15,13 +15,12 @@
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import AppHeader from '$lib/components/AppHeader.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import AddItemDialog from '$lib/components/AddItemDialog.svelte';
 	import QuickViewPanel from '$lib/components/QuickViewPanel.svelte';
 	import StatusIcon from '$lib/components/StatusIcon.svelte';
 	import ItemTagChip from '$lib/components/ItemTagChip.svelte';
-	import TagFilterSidebar from '$lib/components/TagFilterSidebar.svelte';
+	import TagFilterPopover from '$lib/components/TagFilterPopover.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, KIND_PLURAL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { relativeTime } from '$lib/time';
@@ -202,6 +201,31 @@
 		return filtered.filter((i) => i.status === status);
 	}
 
+	// Items in the order they appear on screen — used by the quick view panel
+	// to navigate prev/next through the currently filtered list.
+	const orderedItems = $derived([
+		...bucket('open'),
+		...bucket('in_progress'),
+		...bucket('done'),
+		...bucket('archived')
+	]);
+	const quickViewIndex = $derived(
+		quickViewItem ? orderedItems.findIndex((i) => i.id === quickViewItem!.id) : -1
+	);
+	const prevItem = $derived(quickViewIndex > 0 ? orderedItems[quickViewIndex - 1] : null);
+	const nextItem = $derived(
+		quickViewIndex >= 0 && quickViewIndex < orderedItems.length - 1
+			? orderedItems[quickViewIndex + 1]
+			: null
+	);
+
+	function goPrev() {
+		if (prevItem) quickViewItem = prevItem;
+	}
+	function goNext() {
+		if (nextItem) quickViewItem = nextItem;
+	}
+
 	async function performDelete() {
 		if (!project) return;
 		deleting = true;
@@ -220,40 +244,42 @@
 		draggable="true"
 		ondragstart={(e) => handleDragStart(e, item)}
 		ondragend={handleDragEnd}
-		class="group flex cursor-grab items-center gap-3 px-4 py-2.5 transition hover:bg-card-2 active:cursor-grabbing"
+		class="group flex cursor-grab flex-col gap-1.5 px-4 py-2.5 transition hover:bg-card-2 active:cursor-grabbing"
 		class:opacity-40={draggingId === item.id}
 	>
-		<StatusIcon status={item.status} />
-		<button
-			type="button"
-			onclick={() => openQuickView(item)}
-			class="min-w-0 flex-1 truncate text-left text-sm text-fg hover:underline"
-		>
-			{item.title}
-		</button>
 		{#if item.tags.length > 0}
-			<div class="flex flex-wrap items-center gap-1">
+			<div class="flex flex-wrap items-center gap-1 pl-7">
 				{#each item.tags as tag (tag.id)}
 					<ItemTagChip {tag} onRemove={() => handleDetachTag(item, tag.slug)} />
 				{/each}
 			</div>
 		{/if}
-		<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
-			{KIND_LABEL[item.kind]}
-		</span>
-		<a
-			href={`/projects/${project!.slug}/${item.sequence}`}
-			class="font-mono text-xs text-fg-faint hover:text-fg hover:underline"
-			title="Open full view"
-		>
-			#{item.sequence}
-		</a>
-		<span
-			class="w-10 text-right text-xs text-fg-faint"
-			title={new Date(item.updated_at).toLocaleString()}
-		>
-			{relativeTime(item.updated_at)}
-		</span>
+		<div class="flex items-center gap-3">
+			<StatusIcon status={item.status} />
+			<button
+				type="button"
+				onclick={() => openQuickView(item)}
+				class="min-w-0 flex-1 truncate text-left text-sm text-fg hover:underline"
+			>
+				{item.title}
+			</button>
+			<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
+				{KIND_LABEL[item.kind]}
+			</span>
+			<a
+				href={`/projects/${project!.slug}/${item.sequence}`}
+				class="font-mono text-xs text-fg-faint hover:text-fg hover:underline"
+				title="Open full view"
+			>
+				#{item.sequence}
+			</a>
+			<span
+				class="hidden w-10 text-right text-xs text-fg-faint sm:inline"
+				title={new Date(item.updated_at).toLocaleString()}
+			>
+				{relativeTime(item.updated_at)}
+			</span>
+		</div>
 	</li>
 {/snippet}
 
@@ -299,7 +325,6 @@
 {/snippet}
 
 {#if !auth.loading && auth.user}
-	<AppHeader />
 	<main class="mx-auto max-w-6xl px-6 py-10">
 		<div class="mb-6">
 			<a
@@ -322,13 +347,13 @@
 				class="mb-8 border-b-4 pb-6"
 				style:border-bottom-color={projectColourVar(project.colour)}
 			>
-				<div class="flex items-start gap-4">
+				<div class="flex items-start gap-3 sm:gap-4">
 					{#if project.icon}
-						<span class="text-4xl leading-none">{project.icon}</span>
+						<span class="text-3xl leading-none sm:text-4xl">{project.icon}</span>
 					{/if}
 					<div class="min-w-0 flex-1">
 						<div class="flex items-start justify-between gap-2">
-							<h1 class="text-3xl font-semibold tracking-tight text-fg">
+							<h1 class="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
 								{project.name}
 							</h1>
 							<div class="flex shrink-0 items-center gap-1">
@@ -362,130 +387,125 @@
 			{#if items === null}
 				<p class="text-sm text-fg-faint">Loading items…</p>
 			{:else}
-				<div class="flex flex-col gap-6 lg:flex-row">
+				<!-- Filter + new -->
+				<div class="mb-5 flex flex-wrap items-center gap-2">
+					<button
+						type="button"
+						onclick={() => (kindFilter = null)}
+						class="rounded-full px-3 py-1 text-xs font-medium transition"
+						class:bg-fg={kindFilter === null}
+						class:text-on-accent={kindFilter === null}
+						class:text-fg-muted={kindFilter !== null}
+						class:hover:bg-card-2={kindFilter !== null}
+					>
+						All
+					</button>
+					{#each ITEM_KINDS as k (k)}
+						<button
+							type="button"
+							onclick={() => (kindFilter = k)}
+							class="rounded-full px-3 py-1 text-xs font-medium transition"
+							class:bg-fg={kindFilter === k}
+							class:text-on-accent={kindFilter === k}
+							class:text-fg-muted={kindFilter !== k}
+							class:hover:bg-card-2={kindFilter !== k}
+						>
+							{KIND_PLURAL[k]}
+						</button>
+					{/each}
 					{#if tagsInProject.length > 0}
-						<div class="w-full shrink-0 lg:w-56">
-							<TagFilterSidebar
-								tags={tagsInProject}
-								selectedSlugs={selectedTagSlugs}
-								mode={tagMode}
-								onToggle={toggleTagFilter}
-								onModeChange={(m) => (tagMode = m)}
-							/>
-						</div>
+						<span class="mx-1 h-4 w-px bg-line"></span>
+						<TagFilterPopover
+							tags={tagsInProject}
+							selectedSlugs={selectedTagSlugs}
+							mode={tagMode}
+							onToggle={toggleTagFilter}
+							onModeChange={(m) => (tagMode = m)}
+						/>
 					{/if}
-					<div class="min-w-0 flex-1">
-						<!-- Filter + new -->
-						<div class="mb-5 flex flex-wrap items-center gap-2">
+					<span class="flex-1"></span>
+					<button
+						type="button"
+						onclick={() => (addItemOpen = true)}
+						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+					>
+						<Plus class="h-4 w-4" />
+						New item
+					</button>
+				</div>
+
+				{#if itemError}
+					<div
+						class="mb-4 flex items-start gap-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+					>
+						<span class="flex-1">{itemError}</span>
+						<button
+							type="button"
+							onclick={() => (itemError = null)}
+							aria-label="Dismiss"
+							class="text-danger/70 transition hover:text-danger"
+						>
+							<X class="h-4 w-4" />
+						</button>
+					</div>
+				{/if}
+
+				{#if items.length === 0}
+					<section class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">
+						<p class="text-fg-muted">Your trove is empty — toss something in.</p>
+					</section>
+				{:else}
+					<div class="flex flex-col gap-4">
+						{@render shelf('open', true)}
+						{@render shelf('in_progress', true)}
+
+						<div class="flex flex-wrap items-center gap-2 pt-2">
 							<button
 								type="button"
-								onclick={() => (kindFilter = null)}
-								class="rounded-full px-3 py-1 text-xs font-medium transition"
-								class:bg-fg={kindFilter === null}
-								class:text-on-accent={kindFilter === null}
-								class:text-fg-muted={kindFilter !== null}
-								class:hover:bg-card-2={kindFilter !== null}
+								onclick={() => (showDone = !showDone)}
+								ondragover={(e) => handleDragOver(e, 'done')}
+								ondragleave={() => (dragOverStatus = null)}
+								ondrop={(e) => handleDrop(e, 'done')}
+								class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
+								class:border-accent={dragOverStatus === 'done' && draggingId !== null}
 							>
-								All
+								{#if showDone}
+									<ChevronDown class="h-3.5 w-3.5" />
+								{:else}
+									<ChevronRight class="h-3.5 w-3.5" />
+								{/if}
+								{dragOverStatus === 'done' && draggingId !== null
+									? 'Drop to mark done'
+									: `Done · ${bucket('done').length}`}
 							</button>
-							{#each ITEM_KINDS as k (k)}
-								<button
-									type="button"
-									onclick={() => (kindFilter = k)}
-									class="rounded-full px-3 py-1 text-xs font-medium transition"
-									class:bg-fg={kindFilter === k}
-									class:text-on-accent={kindFilter === k}
-									class:text-fg-muted={kindFilter !== k}
-									class:hover:bg-card-2={kindFilter !== k}
-								>
-									{KIND_PLURAL[k]}
-								</button>
-							{/each}
-							<span class="flex-1"></span>
 							<button
 								type="button"
-								onclick={() => (addItemOpen = true)}
-								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+								onclick={() => (showArchived = !showArchived)}
+								ondragover={(e) => handleDragOver(e, 'archived')}
+								ondragleave={() => (dragOverStatus = null)}
+								ondrop={(e) => handleDrop(e, 'archived')}
+								class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
+								class:border-accent={dragOverStatus === 'archived' && draggingId !== null}
 							>
-								<Plus class="h-4 w-4" />
-								New item
+								{#if showArchived}
+									<ChevronDown class="h-3.5 w-3.5" />
+								{:else}
+									<ChevronRight class="h-3.5 w-3.5" />
+								{/if}
+								{dragOverStatus === 'archived' && draggingId !== null
+									? 'Drop to archive'
+									: `Archived · ${bucket('archived').length}`}
 							</button>
 						</div>
 
-						{#if itemError}
-							<div
-								class="mb-4 flex items-start gap-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
-							>
-								<span class="flex-1">{itemError}</span>
-								<button
-									type="button"
-									onclick={() => (itemError = null)}
-									aria-label="Dismiss"
-									class="text-danger/70 transition hover:text-danger"
-								>
-									<X class="h-4 w-4" />
-								</button>
-							</div>
+						{#if showDone}
+							{@render shelf('done', true)}
 						{/if}
-
-						{#if items.length === 0}
-							<section class="rounded-lg border border-line bg-card p-12 text-center">
-								<p class="text-fg-muted">Your trove is empty — toss something in.</p>
-							</section>
-						{:else}
-							<div class="flex flex-col gap-4">
-								{@render shelf('open', true)}
-								{@render shelf('in_progress', true)}
-
-								<div class="flex flex-wrap items-center gap-2 pt-2">
-									<button
-										type="button"
-										onclick={() => (showDone = !showDone)}
-										ondragover={(e) => handleDragOver(e, 'done')}
-										ondragleave={() => (dragOverStatus = null)}
-										ondrop={(e) => handleDrop(e, 'done')}
-										class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
-										class:border-accent={dragOverStatus === 'done' && draggingId !== null}
-									>
-										{#if showDone}
-											<ChevronDown class="h-3.5 w-3.5" />
-										{:else}
-											<ChevronRight class="h-3.5 w-3.5" />
-										{/if}
-										{dragOverStatus === 'done' && draggingId !== null
-											? 'Drop to mark done'
-											: `Done · ${bucket('done').length}`}
-									</button>
-									<button
-										type="button"
-										onclick={() => (showArchived = !showArchived)}
-										ondragover={(e) => handleDragOver(e, 'archived')}
-										ondragleave={() => (dragOverStatus = null)}
-										ondrop={(e) => handleDrop(e, 'archived')}
-										class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-fg-muted transition hover:bg-card-2 hover:text-fg"
-										class:border-accent={dragOverStatus === 'archived' && draggingId !== null}
-									>
-										{#if showArchived}
-											<ChevronDown class="h-3.5 w-3.5" />
-										{:else}
-											<ChevronRight class="h-3.5 w-3.5" />
-										{/if}
-										{dragOverStatus === 'archived' && draggingId !== null
-											? 'Drop to archive'
-											: `Archived · ${bucket('archived').length}`}
-									</button>
-								</div>
-
-								{#if showDone}
-									{@render shelf('done', true)}
-								{/if}
-								{#if showArchived}
-									{@render shelf('archived', true)}
-								{/if}
-							</div>
+						{#if showArchived}
+							{@render shelf('archived', true)}
 						{/if}
 					</div>
-				</div>
+				{/if}
 			{/if}
 
 			<ConfirmDialog
@@ -510,6 +530,8 @@
 				{project}
 				onUpdated={handleItemUpdated}
 				onDeleted={handleItemDeleted}
+				onPrev={prevItem ? goPrev : undefined}
+				onNext={nextItem ? goNext : undefined}
 			/>
 		{/if}
 	</main>

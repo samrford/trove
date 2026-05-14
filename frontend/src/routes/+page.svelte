@@ -3,7 +3,6 @@
 	import { listProjects, type Project } from '$lib/api/projects';
 	import { ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
-	import AppHeader from '$lib/components/AppHeader.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { Plus } from '@lucide/svelte';
 
@@ -34,7 +33,6 @@
 </script>
 
 {#if !auth.loading && auth.user}
-	<AppHeader />
 	<main class="mx-auto max-w-5xl px-6 py-10">
 		<div class="mb-8 flex items-center justify-between">
 			<div>
@@ -59,7 +57,7 @@
 		{#if projects === null && !error}
 			<p class="text-sm text-fg-faint">Loading…</p>
 		{:else if projects && projects.length === 0}
-			<div class="rounded-lg border border-line bg-card p-12 text-center">
+			<div class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">
 				<p class="text-fg-muted">Your trove is empty — toss something in.</p>
 				<a
 					href="/projects/new"
