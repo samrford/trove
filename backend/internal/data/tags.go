@@ -102,17 +102,17 @@ func FindOrCreateTag(ctx context.Context, db *sql.DB, userID, name, slug string,
 	}
 
 	pqErr, ok := err.(*pq.Error)
-	if !ok || pqErr.Code != "23505" {
+	if !ok || pqErr.Code != PGUniqueViolation {
 		return nil, false, err
 	}
 
 	// Auto-merge: normalised name already exists → return the existing tag.
-	if pqErr.Constraint == "tags_owner_normalised_unique" {
+	if pqErr.Constraint == ConstraintTagsOwnerNormalisedUnique {
 		existing, err := getTagByNormalisedName(ctx, db, userID, normalised)
 		return existing, false, err
 	}
 	// Slug collision with a *different* tag.
-	if pqErr.Constraint == "tags_owner_slug_unique" {
+	if pqErr.Constraint == ConstraintTagsOwnerSlugUnique {
 		return nil, false, ErrTagSlugTaken
 	}
 	return nil, false, err
@@ -199,13 +199,13 @@ func UpdateTag(ctx context.Context, db *sql.DB, tagID, name, slug string, descri
 
 	tag, err := scanTag(row)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			if pqErr.Constraint == "tags_owner_slug_unique" {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == PGUniqueViolation {
+			if pqErr.Constraint == ConstraintTagsOwnerSlugUnique {
 				return nil, ErrTagSlugTaken
 			}
 			// Renaming into an existing normalised name → conflict. We don't
 			// auto-merge on update (would silently delete the renamed tag).
-			if pqErr.Constraint == "tags_owner_normalised_unique" {
+			if pqErr.Constraint == ConstraintTagsOwnerNormalisedUnique {
 				return nil, fmt.Errorf("a tag with that name already exists")
 			}
 		}
