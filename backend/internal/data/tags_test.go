@@ -25,6 +25,11 @@ func TestNormaliseTagName(t *testing.T) {
 	}
 }
 
+// updateTagSQL pins the full UPDATE statement (column order + COALESCE/NULLIF
+// slug guard) so a regression that reorders SET columns or drops the slug
+// guard fails the match instead of silently passing on a loose `UPDATE tags`.
+const updateTagSQL = `UPDATE tags\s+SET name = \$1,\s+name_normalised = \$2,\s+slug = COALESCE\(NULLIF\(\$3, ''\), slug\),\s+description = \$4,\s+icon = \$5,\s+colour = \$6,\s+updated_at = NOW\(\)\s+WHERE id = \$7`
+
 func tagRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "slug", "name", "name_normalised", "description", "icon", "colour",
@@ -119,19 +124,35 @@ func TestFindOrCreateTag_UnknownPQError(t *testing.T) {
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "u-1").
 		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: "something_else"})
 
-	if _, _, err := FindOrCreateTag(context.Background(), db, "u-1", "Bug", "bug", nil, nil, nil); err == nil {
+	_, _, err := FindOrCreateTag(context.Background(), db, "u-1", "Bug", "bug", nil, nil, nil)
+	if err == nil {
 		t.Fatal("expected error")
+	}
+	// A unique violation on an unrecognised constraint must pass the raw
+	// pq.Error straight through — not be misclassified as the slug-taken or
+	// auto-merge branch.
+	if errors.Is(err, ErrTagSlugTaken) {
+		t.Errorf("unknown constraint leaked as ErrTagSlugTaken: %v", err)
+	}
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr.Constraint != "something_else" {
+		t.Errorf("expected passthrough *pq.Error, got %T: %v", err, err)
 	}
 }
 
 func TestFindOrCreateTag_OtherError(t *testing.T) {
 	db, mock := newMock(t)
+	boom := errors.New("boom")
 	mock.ExpectQuery(`INSERT INTO tags`).
 		WithArgs("bug", "Bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "u-1").
-		WillReturnError(errors.New("boom"))
+		WillReturnError(boom)
 
-	if _, _, err := FindOrCreateTag(context.Background(), db, "u-1", "Bug", "bug", nil, nil, nil); err == nil {
-		t.Fatal("expected error")
+	_, _, err := FindOrCreateTag(context.Background(), db, "u-1", "Bug", "bug", nil, nil, nil)
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the underlying error to propagate, got %v", err)
+	}
+	if errors.Is(err, ErrTagSlugTaken) {
+		t.Errorf("non-constraint error must not map to ErrTagSlugTaken: %v", err)
 	}
 }
 
@@ -203,12 +224,16 @@ func TestListTagsForUser_ScanError(t *testing.T) {
 
 func TestUpdateTag_Success(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(`UPDATE tags`).
+	mock.ExpectQuery(updateTagSQL).
 		WithArgs("Bug", "bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "t-1").
 		WillReturnRows(tagRows())
 
-	if _, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil); err != nil {
+	tag, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil)
+	if err != nil {
 		t.Fatalf("UpdateTag: %v", err)
+	}
+	if tag.ID != "t-1" || tag.Slug != "bug" {
+		t.Errorf("got %+v", tag)
 	}
 }
 
@@ -221,7 +246,7 @@ func TestUpdateTag_EmptyName(t *testing.T) {
 
 func TestUpdateTag_SlugTaken(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(`UPDATE tags`).
+	mock.ExpectQuery(updateTagSQL).
 		WithArgs("Bug", "bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "t-1").
 		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: ConstraintTagsOwnerSlugUnique})
 
@@ -232,23 +257,38 @@ func TestUpdateTag_SlugTaken(t *testing.T) {
 
 func TestUpdateTag_NormalisedConflict(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(`UPDATE tags`).
+	mock.ExpectQuery(updateTagSQL).
 		WithArgs("Bug", "bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "t-1").
 		WillReturnError(&pq.Error{Code: PGUniqueViolation, Constraint: ConstraintTagsOwnerNormalisedUnique})
 
-	if _, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil); err == nil {
+	_, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil)
+	if err == nil {
 		t.Fatal("expected error")
+	}
+	// A normalised-name collision is a *rename* conflict, not a slug clash:
+	// it must not surface as ErrTagSlugTaken (which the handler maps to 409
+	// with a slug-specific message) and must carry the rename message.
+	if errors.Is(err, ErrTagSlugTaken) {
+		t.Errorf("normalised conflict leaked as ErrTagSlugTaken: %v", err)
+	}
+	if err.Error() != "a tag with that name already exists" {
+		t.Errorf("unexpected message: %q", err.Error())
 	}
 }
 
 func TestUpdateTag_OtherError(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(`UPDATE tags`).
+	boom := errors.New("boom")
+	mock.ExpectQuery(updateTagSQL).
 		WithArgs("Bug", "bug", "bug", sql.NullString{}, sql.NullString{}, sql.NullString{}, "t-1").
-		WillReturnError(errors.New("boom"))
+		WillReturnError(boom)
 
-	if _, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil); err == nil {
-		t.Fatal("expected error")
+	_, err := UpdateTag(context.Background(), db, "t-1", "Bug", "bug", nil, nil, nil)
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the underlying error to propagate, got %v", err)
+	}
+	if errors.Is(err, ErrTagSlugTaken) {
+		t.Errorf("non-constraint error must not map to ErrTagSlugTaken: %v", err)
 	}
 }
 

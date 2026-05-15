@@ -66,39 +66,45 @@ func TestCreateItem_Success(t *testing.T) {
 
 func TestCreateItem_SequenceError(t *testing.T) {
 	db, mock := newMock(t)
+	seqErr := errors.New("seq")
 	mock.ExpectBegin()
 	mock.ExpectQuery(`UPDATE project_item_sequences`).
 		WithArgs("p-1").
-		WillReturnError(errors.New("seq"))
+		WillReturnError(seqErr)
 	mock.ExpectRollback()
 
-	if _, err := CreateItem(context.Background(), db, "p-1", "u-1", ItemKindTask, "T", nil); err == nil {
-		t.Fatal("expected error")
+	_, err := CreateItem(context.Background(), db, "p-1", "u-1", ItemKindTask, "T", nil)
+	if !errors.Is(err, seqErr) {
+		t.Fatalf("expected wrapped sequence error, got %v", err)
 	}
 }
 
 func TestCreateItem_InsertError(t *testing.T) {
 	db, mock := newMock(t)
+	insErr := errors.New("boom")
 	mock.ExpectBegin()
 	mock.ExpectQuery(`UPDATE project_item_sequences`).
 		WithArgs("p-1").
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(1))
 	mock.ExpectQuery(`INSERT INTO items`).
 		WithArgs("p-1", 1, ItemKindTask, "T", sql.NullString{}, "u-1").
-		WillReturnError(errors.New("boom"))
+		WillReturnError(insErr)
 	mock.ExpectRollback()
 
-	if _, err := CreateItem(context.Background(), db, "p-1", "u-1", ItemKindTask, "T", nil); err == nil {
-		t.Fatal("expected error")
+	_, err := CreateItem(context.Background(), db, "p-1", "u-1", ItemKindTask, "T", nil)
+	if !errors.Is(err, insErr) {
+		t.Fatalf("expected the insert error to propagate, got %v", err)
 	}
 }
 
 func TestCreateItem_BeginError(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectBegin().WillReturnError(errors.New("nope"))
+	beginErr := errors.New("nope")
+	mock.ExpectBegin().WillReturnError(beginErr)
 
-	if _, err := CreateItem(context.Background(), db, "p-1", "u-1", ItemKindTask, "T", nil); err == nil {
-		t.Fatal("expected error")
+	_, err := CreateItem(context.Background(), db, "p-1", "u-1", ItemKindTask, "T", nil)
+	if !errors.Is(err, beginErr) {
+		t.Fatalf("expected the begin error to propagate, got %v", err)
 	}
 }
 
@@ -157,9 +163,18 @@ func TestListItemsForProject_KindAndStatus(t *testing.T) {
 	}
 }
 
+// The AND/OR tag filters generate structurally different SQL. These regexes
+// pin each branch's full sub-select (including the cardinality / EXISTS shape)
+// so a regression that swaps the branches — or degrades AND into OR — fails
+// the match rather than passing on a loose `FROM items i`.
+const (
+	tagFilterAndSQL = `i\.project_id = \$1 AND \(\s+SELECT COUNT\(DISTINCT t\.slug\) FROM tags t\s+JOIN item_tags it ON it\.tag_id = t\.id\s+WHERE it\.item_id = i\.id AND t\.slug = ANY\(\$2\)\s+\) = cardinality\(\$2\)`
+	tagFilterOrSQL  = `i\.project_id = \$1 AND EXISTS \(\s+SELECT 1 FROM item_tags it\s+JOIN tags t ON t\.id = it\.tag_id\s+WHERE it\.item_id = i\.id AND t\.slug = ANY\(\$2\)\s+\)`
+)
+
 func TestListItemsForProject_TagFilterAnd(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(`COUNT\(DISTINCT t\.slug\)`).
+	mock.ExpectQuery(tagFilterAndSQL).
 		WithArgs("p-1", pq.Array([]string{"bug", "urgent"})).
 		WillReturnRows(itemRows())
 
@@ -172,7 +187,7 @@ func TestListItemsForProject_TagFilterAnd(t *testing.T) {
 
 func TestListItemsForProject_TagFilterOr(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(`EXISTS \(\s+SELECT 1 FROM item_tags it`).
+	mock.ExpectQuery(tagFilterOrSQL).
 		WithArgs("p-1", pq.Array([]string{"bug"})).
 		WillReturnRows(itemRows())
 

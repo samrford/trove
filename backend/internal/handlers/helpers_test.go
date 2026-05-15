@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +37,16 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 		db.Close()
 	})
 	return db, mock
+}
+
+// decodeJSON unmarshals the recorder body into v, failing the test (with the
+// raw body echoed) if it isn't valid JSON of the expected shape. Success-path
+// tests use this to assert the serialised contract, not just the status code.
+func decodeJSON(t *testing.T, w *httptest.ResponseRecorder, v any) {
+	t.Helper()
+	if err := json.Unmarshal(w.Body.Bytes(), v); err != nil {
+		t.Fatalf("decode body %q: %v", w.Body.String(), err)
+	}
 }
 
 func withUser(r *http.Request, userID, email string) *http.Request {
