@@ -38,5 +38,3 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 )
-
-replace github.com/samrford/google-photos-picker => /Users/ford/personal/google-photos-picker

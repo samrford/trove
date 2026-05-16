@@ -33,7 +33,7 @@ class ConfigState {
 					version: 'unknown',
 					attachmentsEnabled: false,
 					googlePhotosEnabled: false,
-					maxAttachmentBytes: 0
+					maxAttachmentBytes: 25 * 1024 * 1024
 				};
 				this.config = fallback;
 				return fallback;

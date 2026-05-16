@@ -61,10 +61,10 @@ func main() {
 		return corsMiddleware(handlers.AuthMiddleware(verifier, db, h))
 	}
 
-	// Object storage - Optional: if env vars
-	// are missing, the server still boots but attachments are disabled
-	// gracefully (handlers stay registered but item responses just won't
-	// include URLs for objects we can't sign).
+	// Object storage — optional. If STORAGE_ENDPOINT is unset, attachments are
+	// disabled: the attachment routes below are gated on store != nil and
+	// simply aren't registered. If it IS set but init fails, that's a hard
+	// startup error — a misconfigured store shouldn't run silently degraded.
 	var store storage.FileStore
 	if endpoint := os.Getenv("STORAGE_ENDPOINT"); endpoint != "" {
 		s, err := storage.InitStorage(storage.Config{
@@ -132,6 +132,10 @@ func main() {
 	googleRedirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
 	googleEncKey := os.Getenv("GOOGLE_TOKEN_ENCRYPTION_KEY")
 	if store != nil && googleClientID != "" && googleClientSecret != "" && googleRedirectURL != "" && googleEncKey != "" {
+		frontendOrigin := os.Getenv("FRONTEND_ORIGIN")
+		if frontendOrigin == "" {
+			log.Fatal("FRONTEND_ORIGIN must be set when Google Photos is enabled (OAuth callback postMessage target — empty would broadcast the result to \"*\")")
+		}
 		if err := ppg.Migrate(db); err != nil {
 			log.Fatalf("photopicker migrate: %v", err)
 		}
@@ -161,7 +165,7 @@ func main() {
 			},
 			Callback: photopicker.CallbackPage{
 				PostMessageType: "trove:google-oauth",
-				TargetOrigin:    os.Getenv("FRONTEND_ORIGIN"),
+				TargetOrigin:    frontendOrigin,
 			},
 		})
 		if err != nil {

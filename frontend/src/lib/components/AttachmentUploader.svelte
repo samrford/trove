@@ -27,7 +27,7 @@
 	let dragActive = $state(false);
 	let inputEl: HTMLInputElement | undefined = $state();
 
-	const maxBytes = $derived(appConfig.config?.maxAttachmentBytes ?? 25 * 1024 * 1024);
+	const maxBytes = $derived(appConfig.config?.maxAttachmentBytes || 25 * 1024 * 1024);
 	const maxMB = $derived(Math.floor(maxBytes / (1024 * 1024)));
 	const googleEnabled = $derived(appConfig.config?.googlePhotosEnabled ?? false);
 

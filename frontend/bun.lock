@@ -8,6 +8,7 @@
         "@lucide/svelte": "^1.14.0",
         "@supabase/supabase-js": "^2.105.4",
         "dompurify": "^3.4.2",
+        "google-photos-picker-client": "^0.3.0",
         "marked": "^18.0.3",
       },
       "devDependencies": {
@@ -362,6 +363,8 @@
     "glob-parent": ["glob-parent@6.0.2", "", { "dependencies": { "is-glob": "^4.0.3" } }, "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A=="],
 
     "globals": ["globals@17.6.0", "", {}, "sha512-sepffkT8stwnIYbsMBpoCHJuJM5l98FUF2AnE07hfvE0m/qp3R586hw4jF4uadbhvg1ooIdzuu7CsfD2jzCaNA=="],
+
+    "google-photos-picker-client": ["google-photos-picker-client@0.3.0", "", { "peerDependencies": { "react": ">=18" }, "optionalPeers": ["react"] }, "sha512-dm4ctBbWH5JW5yAqQHODOX2VToISG/Zbj2d6rN98fO3XFi0Rp8Sn824nYEgEZsQY2OYr5NWMulwLf0TOAJeYOw=="],
 
     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
 

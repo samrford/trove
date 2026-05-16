@@ -168,11 +168,17 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 }
 
 // SignedURL returns a time-limited GET URL for the object. ttl is how long the
-// URL stays valid
+// URL stays valid.
+//
+// The URL forces Content-Disposition: attachment so a top-level open of an
+// uploaded HTML/SVG downloads instead of executing in the storage origin
+// (stored-XSS defence). It does not affect <img> previews or the download
+// link — Content-Disposition is ignored for embedded subresources.
 func (s *Storage) SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
 	req, err := s.presign.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
+		Bucket:                     aws.String(s.bucket),
+		Key:                        aws.String(key),
+		ResponseContentDisposition: aws.String("attachment"),
 	}, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("storage: presign %q: %w", key, err)

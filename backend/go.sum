@@ -62,8 +62,8 @@ github.com/pressly/goose/v3 v3.27.1 h1:6uEvcprBybDmW4hcz3gYujhARhye+GoWKhEWyzD5s
 github.com/pressly/goose/v3 v3.27.1/go.mod h1:maruOxsPnIG2yHHyo8UqKWXYKFcH7Q76csUV7+7KYoM=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
-github.com/samrford/google-photos-picker v0.2.0 h1:5531JdVb2i2/lIlXIhA5LypZZ+O1pZ4z6EYxlVrZeSM=
-github.com/samrford/google-photos-picker v0.2.0/go.mod h1:q0cyTweXADL0seUyK2aN9/oQ9pJN6OL4YHETC3lArfI=
+github.com/samrford/google-photos-picker v0.3.0 h1:4U3h2o6wyCnW4/GEZM5BrJRxFstYZqqzF+sjPw5Y5I4=
+github.com/samrford/google-photos-picker v0.3.0/go.mod h1:q0cyTweXADL0seUyK2aN9/oQ9pJN6OL4YHETC3lArfI=
 github.com/sethvargo/go-retry v0.3.0 h1:EEt31A35QhrcRZtrYFDTBg91cqZVnFL2navjDrah2SE=
 github.com/sethvargo/go-retry v0.3.0/go.mod h1:mNX17F0C/HguQMyMyJxcnU471gOZGxCLyYaFyAZraas=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
