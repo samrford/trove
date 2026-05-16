@@ -6,7 +6,7 @@
 	import TagCombobox from './TagCombobox.svelte';
 	import { tagColourFromName } from '$lib/tagColours';
 	import { slugify } from '$lib/slug';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 
 	type Props = {
 		open?: boolean;
@@ -117,7 +117,7 @@
 			open = false;
 			onCreated({ ...item, tags: attachedTags });
 		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
+			error = errMsg(e);
 			submitting = false;
 		}
 	}

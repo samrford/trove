@@ -3,7 +3,8 @@ import { PUBLIC_API_BASE_URL } from '$env/static/public';
 
 export const API_BASE_URL = PUBLIC_API_BASE_URL ?? '';
 
-async function getAccessToken(): Promise<string | null> {
+// Current Supabase access token, or null if signed out.
+export async function getAccessToken(): Promise<string | null> {
 	const { data } = await supabase.auth.getSession();
 	return data.session?.access_token ?? null;
 }
@@ -49,4 +50,12 @@ export class ApiError extends Error {
 		this.body = body;
 		this.endpoint = endpoint;
 	}
+}
+
+// Best-effort human message from a thrown value. ApiError/Error → their
+// `.message`; anything else → String().
+export function errMsg(e: unknown): string {
+	if (e instanceof ApiError) return e.message;
+	if (e instanceof Error) return e.message;
+	return String(e);
 }

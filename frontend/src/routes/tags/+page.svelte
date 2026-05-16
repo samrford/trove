@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { listTags, type TagWithCount } from '$lib/api/tags';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import TagChip from '$lib/components/TagChip.svelte';
 	import { Plus, Tag as TagIcon } from '@lucide/svelte';
@@ -18,7 +18,7 @@
 			listTags()
 				.then((res) => (tags = res))
 				.catch((e) => {
-					error = e instanceof ApiError ? e.message : String(e);
+					error = errMsg(e);
 				});
 		}
 	});

@@ -20,6 +20,22 @@ export type Item = {
 	created_at: string;
 	updated_at: string;
 	tags: Tag[];
+	attachments: Attachment[];
+};
+
+export type AttachmentSource = 'upload' | 'google_photos';
+
+export type Attachment = {
+	id: string;
+	project_id: string;
+	item_id: string | null;
+	filename: string;
+	content_type: string;
+	size_bytes: number;
+	source: AttachmentSource;
+	uploader_id: string;
+	created_at: string;
+	url: string;
 };
 
 export type ItemInput = {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { createTag, checkTagSlug, type Tag } from '$lib/api/tags';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
 	import SlugField, { type SlugStatus } from '$lib/components/SlugField.svelte';
@@ -55,7 +55,7 @@
 			});
 			goto(`/tags/${tag.slug}`);
 		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
+			error = errMsg(e);
 			submitting = false;
 		}
 	}
