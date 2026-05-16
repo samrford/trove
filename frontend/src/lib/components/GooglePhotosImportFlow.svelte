@@ -47,14 +47,14 @@
 	});
 
 	let wasOpen = $state(false);
-	let lastImported = $state(0);
+	let refreshed = $state(false);
 
 	// Kick a status probe when the dialog opens;
 	// cancel any in-flight run when it closes.
 	$effect(() => {
 		if (open && !wasOpen) {
 			wasOpen = true;
-			lastImported = 0;
+			refreshed = false;
 			flow.refreshStatus();
 		} else if (!open && wasOpen) {
 			wasOpen = false;
@@ -62,15 +62,14 @@
 		}
 	});
 
-	// Surface each newly-completed photo to the host (incremental appearance),
-	// and guarantee a final refresh on done.
+	// Refetch the host item once, when the import settles
 	$effect(() => {
-		const done = $flow.progress?.completed ?? 0;
-		if (done > lastImported) {
-			lastImported = done;
+		const terminal = $flow.phase === Phase.done || $flow.phase === Phase.error;
+		const imported = ($flow.progress?.completed ?? 0) > 0;
+		if (terminal && imported && !refreshed) {
+			refreshed = true;
 			onImported?.();
 		}
-		if ($flow.phase === Phase.done) onImported?.();
 	});
 
 	onDestroy(() => flow.cancel());
