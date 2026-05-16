@@ -44,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.app_version != '' && format('v{0}', inputs.app_version) || github.ref }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy backend to Fly
         run: |
@@ -59,6 +61,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.app_version != '' && format('v{0}', inputs.app_version) || github.ref }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy frontend to Fly
         # All public build args (PUBLIC_*) are baked into frontend/fly.toml under
