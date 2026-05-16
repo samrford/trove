@@ -125,7 +125,10 @@
 	>
 		<div class="w-full max-w-md rounded-lg border border-line bg-card p-5 shadow-2xl">
 			<div class="mb-3 flex items-center justify-between">
-				<h2 id="gphotos-title" class="inline-flex items-center gap-2 text-base font-semibold text-fg">
+				<h2
+					id="gphotos-title"
+					class="inline-flex items-center gap-2 text-base font-semibold text-fg"
+				>
 					<ImagePlus class="h-4 w-4 text-fg-muted" />
 					Google Photos
 				</h2>

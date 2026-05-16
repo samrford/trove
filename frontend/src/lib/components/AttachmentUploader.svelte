@@ -80,8 +80,7 @@
 						trackers = trackers.filter((x) => x.id !== t.id);
 					}, 1500);
 				} catch (e) {
-					const message =
-						errMsg(e);
+					const message = errMsg(e);
 					trackers = trackers.map((x) => (x.id === t.id ? { ...x, error: message } : x));
 				}
 			})
