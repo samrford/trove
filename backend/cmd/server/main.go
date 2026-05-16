@@ -183,17 +183,17 @@ func main() {
 		mux.HandleFunc("/v1/google-photos/imports/{jobID}", authed(pp.GetImport(func(r *http.Request) string {
 			return r.PathValue("jobID")
 		})))
-
-		// Trove-scoped routes — capture target item, then delegate.
-		gphotosHandler := handlers.NewGPhotosHandler(db, store, pp, client)
-		mux.HandleFunc("/v1/projects/{slug}/items/{seq}/google-photos/sessions",
-			authed(gphotosHandler.HandleCreateSession))
-		mux.HandleFunc("/v1/projects/{slug}/items/{seq}/google-photos/sessions/{sid}/import",
-			authed(gphotosHandler.HandleStartImport))
-		mux.HandleFunc("/v1/projects/{slug}/items/{seq}/google-photos/sessions/{sid}",
+		mux.HandleFunc("/v1/google-photos/sessions", authed(pp.CreateSession()))
+		mux.HandleFunc("/v1/google-photos/sessions/{sid}",
 			authed(pp.PollSession(func(r *http.Request) string {
 				return r.PathValue("sid")
 			})))
+
+		// A thin wrapper that authorises the destination and injects it as server-derived
+		// metadata (the browser never names the destination).
+		gphotosHandler := handlers.NewGPhotosHandler(db, client)
+		mux.HandleFunc("/v1/projects/{slug}/items/{seq}/google-photos/sessions/{sid}/import",
+			authed(gphotosHandler.HandleStartImport))
 
 		googlePhotosEnabled = true
 		log.Println("Google Photos integration enabled")
@@ -206,10 +206,10 @@ func main() {
 	mux.HandleFunc("/v1/config", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"version":              version,
-			"attachmentsEnabled":   store != nil,
-			"googlePhotosEnabled":  googlePhotosEnabled,
-			"maxAttachmentBytes":   handlers.MaxAttachmentBytes,
+			"version":             version,
+			"attachmentsEnabled":  store != nil,
+			"googlePhotosEnabled": googlePhotosEnabled,
+			"maxAttachmentBytes":  handlers.MaxAttachmentBytes,
 		})
 	}))
 

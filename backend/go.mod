@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	github.com/pressly/goose/v3 v3.27.1
-	github.com/samrford/google-photos-picker v0.2.0
+	github.com/samrford/google-photos-picker v0.3.0
 )
 
 require (
@@ -38,3 +38,5 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 )
+
+replace github.com/samrford/google-photos-picker => /Users/ford/personal/google-photos-picker

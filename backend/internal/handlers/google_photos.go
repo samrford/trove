@@ -18,40 +18,28 @@ import (
 	"trove/backend/internal/data/storage"
 )
 
-// GPhotosHandler wraps the photo-picker library's session/import flow so we
-// can capture which Trove item each session targets. The actual OAuth and
-// session lifecycle handlers come from `picker.NewHandlers(...)` and are
-// mounted directly on the mux by main.
+// GPhotosHandler hosts the one Google Photos route that needs Trove context:
+// StartImport. Session create/poll need no per-item context, so the picker
+// library's handlers are mounted directly for those — only the import has to
+// authorise the destination and attach it as server-derived metadata.
 type GPhotosHandler struct {
-	db    *sql.DB
-	store storage.FileStore
-	pp    *photopicker.Handlers
-	c     *photopicker.Client
+	db *sql.DB
+	c  *photopicker.Client
 }
 
-func NewGPhotosHandler(db *sql.DB, store storage.FileStore, pp *photopicker.Handlers, client *photopicker.Client) *GPhotosHandler {
-	return &GPhotosHandler{db: db, store: store, pp: pp, c: client}
+func NewGPhotosHandler(db *sql.DB, client *photopicker.Client) *GPhotosHandler {
+	return &GPhotosHandler{db: db, c: client}
 }
 
-// HandleCreateSession serves POST /v1/projects/{slug}/items/{seq}/google-photos/sessions.
-// Identical body to the picker lib's CreateSession but resolves the item
-// first so the frontend gets a 404 before opening the Google picker UI for a
-// missing item.
-func (h *GPhotosHandler) HandleCreateSession(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if _, _, ok := h.resolveItem(w, r); !ok {
-		return
-	}
-	h.pp.CreateSession()(w, r)
-}
-
-// HandleStartImport serves POST /v1/projects/{slug}/items/{seq}/google-photos/sessions/{sid}/import.
-// Lets the picker library kick off the import worker, then records the
-// resulting job_id alongside the destination item so the sink can route each
-// photo to the right place.
+// HandleStartImport serves POST
+// /v1/projects/{slug}/items/{seq}/google-photos/sessions/{sid}/import.
+//
+// The destination is derived entirely server-side: we resolve and
+// ownership-check the project/item from the authenticated request, then start
+// the import with those IDs as metadata. The browser never supplies the
+// destination, so it can't be spoofed onto someone else's item. The picker
+// library threads the metadata back to NewTroveSink via
+// DownloadedPhoto.JobMetadata.
 func (h *GPhotosHandler) HandleStartImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -68,23 +56,13 @@ func (h *GPhotosHandler) HandleStartImport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Call the client directly so we get the job_id back rather than going
-	// through the library's handler which only writes it to the response.
-	jobID, err := h.c.StartImport(r.Context(), userID, sessionID)
+	jobID, err := h.c.StartImport(r.Context(), userID, sessionID, map[string]string{
+		"project_id": project.ID,
+		"item_id":    item.ID,
+	})
 	if err != nil {
 		log.Printf("StartImport: %v", err)
 		http.Error(w, `{"error":"Failed to start import"}`, http.StatusInternalServerError)
-		return
-	}
-
-	if err := data.CreateGPhotosImportTarget(r.Context(), h.db, data.GPhotosImportTarget{
-		JobID:     jobID,
-		ProjectID: project.ID,
-		ItemID:    item.ID,
-		UserID:    userID,
-	}); err != nil {
-		log.Printf("CreateGPhotosImportTarget: %v", err)
-		http.Error(w, `{"error":"Failed to record import destination"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -94,6 +72,7 @@ func (h *GPhotosHandler) HandleStartImport(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// resolveItem loads and ownership-checks the project/item named in the path.
 func (h *GPhotosHandler) resolveItem(w http.ResponseWriter, r *http.Request) (*data.Project, *data.Item, bool) {
 	slugOrID := r.PathValue("slug")
 	seqStr := r.PathValue("seq")
@@ -133,17 +112,16 @@ func (h *GPhotosHandler) resolveItem(w http.ResponseWriter, r *http.Request) (*d
 	return project, item, true
 }
 
-// NewTroveSink returns a PhotoSink that streams downloaded photos to storage
-// and inserts an attachments row for each. Routes by job_id via the
-// gphotos_import_targets table.
+// NewTroveSink streams each downloaded photo to storage and records an
+// attachment row, routed to the destination item via the server-derived
+// JobMetadata set at StartImport. Missing metadata is a hard error — it would
+// only happen if an import were started outside HandleStartImport.
 func NewTroveSink(db *sql.DB, store storage.FileStore) photopicker.PhotoSink {
 	return photopicker.SinkFunc(func(ctx context.Context, userID, jobID string, p photopicker.DownloadedPhoto) (string, error) {
-		target, err := data.GetGPhotosImportTarget(ctx, db, jobID)
-		if err != nil {
-			return "", fmt.Errorf("lookup target: %w", err)
-		}.
-		if target.UserID != userID {
-			return "", fmt.Errorf("user mismatch on job %s", jobID)
+		projectID := p.JobMetadata["project_id"]
+		itemID := p.JobMetadata["item_id"]
+		if projectID == "" || itemID == "" {
+			return "", fmt.Errorf("job %s: missing project_id/item_id in metadata", jobID)
 		}
 
 		filename := p.Filename
@@ -156,16 +134,15 @@ func NewTroveSink(db *sql.DB, store storage.FileStore) photopicker.PhotoSink {
 		}
 
 		key := fmt.Sprintf("projects/%s/items/%s/%s%s",
-			target.ProjectID, target.ItemID, uuid.NewString(), filepath.Ext(filename))
+			projectID, itemID, uuid.NewString(), filepath.Ext(filename))
 
 		size, err := store.UploadStream(ctx, key, p.Bytes, contentType)
 		if err != nil {
 			return "", fmt.Errorf("upload: %w", err)
 		}
 
-		itemID := target.ItemID
 		att, err := data.CreateAttachment(ctx, db, data.CreateAttachmentParams{
-			ProjectID:   target.ProjectID,
+			ProjectID:   projectID,
 			ItemID:      &itemID,
 			StorageKey:  key,
 			Filename:    filename,
@@ -185,7 +162,7 @@ func NewTroveSink(db *sql.DB, store storage.FileStore) photopicker.PhotoSink {
 }
 
 // extensionFromMime maps the handful of MIME types Google Photos serves into
-// the corresponding extension so the resulting filename is at least vaguely
+// the corresponding extension so the stored filename is at least vaguely
 // useful. Unknown types fall back to .bin.
 func extensionFromMime(mt string) string {
 	switch mt {
