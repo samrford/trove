@@ -2,9 +2,11 @@
 	import {
 		updateItem,
 		deleteItem,
+		getItem,
 		attachTagToItem,
 		detachTagFromItem,
 		type Item,
+		type Attachment,
 		type ItemKind,
 		type ItemStatus,
 		ITEM_KINDS,
@@ -12,8 +14,9 @@
 	} from '$lib/api/items';
 	import { listTags, type Tag, type TagWithCount } from '$lib/api/tags';
 	import type { Project } from '$lib/api/projects';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { animations } from '$lib/animations.svelte';
+	import { appConfig } from '$lib/config.svelte';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { tagColourFromName } from '$lib/tagColours';
 	import ConfirmDialog from './ConfirmDialog.svelte';
@@ -21,6 +24,9 @@
 	import ItemBody from './ItemBody.svelte';
 	import TagChip from './TagChip.svelte';
 	import TagCombobox from './TagCombobox.svelte';
+	import AttachmentList from './AttachmentList.svelte';
+	import AttachmentUploader from './AttachmentUploader.svelte';
+	import GooglePhotosImportFlow from './GooglePhotosImportFlow.svelte';
 	import { fly } from 'svelte/transition';
 	import { backInOut } from 'svelte/easing';
 	import {
@@ -64,6 +70,28 @@
 
 	let availableTags = $state<TagWithCount[]>([]);
 
+	let gphotosOpen = $state(false);
+	const attachmentsEnabled = $derived(appConfig.config?.attachmentsEnabled ?? false);
+
+	// After an attachment changes, re-fetch the item so the parent (and us)
+	// see fresh signed URLs and a fresh attachments list.
+	async function refreshItemFromServer() {
+		if (!item || !project) return;
+		try {
+			const fresh = await getItem(project.slug, item.sequence);
+			onUpdated?.(fresh);
+		} catch (e) {
+			actionError = errMsg(e);
+		}
+	}
+
+	function handleAttachmentUploaded(_a: Attachment) {
+		refreshItemFromServer();
+	}
+	function handleAttachmentDeleted(_a: Attachment) {
+		refreshItemFromServer();
+	}
+
 	async function refreshAvailableTags() {
 		try {
 			availableTags = await listTags();
@@ -88,7 +116,7 @@
 			const updated = { ...item, tags: [...item.tags, tag] };
 			onUpdated?.(updated);
 		} catch (e) {
-			actionError = e instanceof ApiError ? e.message : String(e);
+			actionError = errMsg(e);
 		}
 	}
 
@@ -99,7 +127,7 @@
 			const updated = { ...item, tags: item.tags.filter((x) => x.id !== t.id) };
 			onUpdated?.(updated);
 		} catch (e) {
-			actionError = e instanceof ApiError ? e.message : String(e);
+			actionError = errMsg(e);
 		}
 	}
 
@@ -142,7 +170,7 @@
 			onUpdated?.(updated);
 			editing = false;
 		} catch (e) {
-			actionError = e instanceof ApiError ? e.message : String(e);
+			actionError = errMsg(e);
 		} finally {
 			saving = false;
 		}
@@ -215,7 +243,7 @@
 			const updated = await updateItem(project.slug, item.sequence, { status });
 			onUpdated?.(updated);
 		} catch (e) {
-			actionError = e instanceof ApiError ? e.message : String(e);
+			actionError = errMsg(e);
 		}
 	}
 
@@ -226,7 +254,7 @@
 			onDeleted?.(item);
 			open = false;
 		} catch (e) {
-			actionError = e instanceof ApiError ? e.message : String(e);
+			actionError = errMsg(e);
 		}
 	}
 
@@ -385,6 +413,26 @@
 							placeholder="Add tags…"
 						/>
 					</div>
+
+					{#if attachmentsEnabled}
+						<div class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium tracking-wide text-fg-faint uppercase"
+								>Attachments</span
+							>
+							<AttachmentUploader
+								slug={project.slug}
+								seq={item.sequence}
+								onUploaded={handleAttachmentUploaded}
+								onGooglePhotosClick={() => (gphotosOpen = true)}
+							/>
+							<AttachmentList
+								slug={project.slug}
+								seq={item.sequence}
+								attachments={item.attachments}
+								onDeleted={handleAttachmentDeleted}
+							/>
+						</div>
+					{/if}
 				</div>
 			</div>
 		{:else}
@@ -409,9 +457,35 @@
 							</div>
 						{/if}
 						<ItemBody {item} class="mt-4" />
+						{#if attachmentsEnabled && item.attachments.length > 0}
+							<div class="mt-5 border-t border-line pt-4">
+								<h3 class="mb-2 text-xs font-medium tracking-wide text-fg-faint uppercase">
+									Attachments
+								</h3>
+								<AttachmentList
+									slug={project.slug}
+									seq={item.sequence}
+									attachments={item.attachments}
+									onDeleted={handleAttachmentDeleted}
+								/>
+							</div>
+						{/if}
 					</div>
 				{/key}
 			</div>
+
+			{#if attachmentsEnabled}
+				<!-- Persistent uploader, sits below the flipping card so it stays put
+					 when you navigate between items. -->
+				<div class="border-t border-line px-4 py-3">
+					<AttachmentUploader
+						slug={project.slug}
+						seq={item.sequence}
+						onUploaded={handleAttachmentUploaded}
+						onGooglePhotosClick={() => (gphotosOpen = true)}
+					/>
+				</div>
+			{/if}
 		{/if}
 
 		<!-- Footer: status (always) + actions (view-mode vs edit-mode) -->
@@ -492,4 +566,11 @@
 			onConfirm={performDelete}
 		/>
 	</aside>
+
+	<GooglePhotosImportFlow
+		bind:open={gphotosOpen}
+		slug={project.slug}
+		seq={item.sequence}
+		onImported={refreshItemFromServer}
+	/>
 {/if}

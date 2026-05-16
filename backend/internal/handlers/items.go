@@ -10,14 +10,78 @@ import (
 	"strings"
 
 	"trove/backend/internal/data"
+	"trove/backend/internal/data/storage"
 )
 
 type ItemsHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	store storage.FileStore
 }
 
-func NewItemsHandler(db *sql.DB) *ItemsHandler {
-	return &ItemsHandler{db: db}
+func NewItemsHandler(db *sql.DB, store storage.FileStore) *ItemsHandler {
+	return &ItemsHandler{db: db, store: store}
+}
+
+// ItemResponse is the JSON shape returned for item GETs — wraps data.Item to
+// add fresh signed URLs for each attachment. Embedding so all of Item's JSON
+// fields are surfaced unchanged.
+type ItemResponse struct {
+	data.Item
+	Attachments []AttachmentResponse `json:"attachments"`
+}
+
+// itemsToResponses batches the attachment-signing pass so list handlers don't
+// repeat the wiring. Pure projection — never errors except on signing failure.
+func (h *ItemsHandler) itemsToResponses(r *http.Request, items []data.Item) ([]ItemResponse, error) {
+	ids := make([]string, len(items))
+	for i := range items {
+		ids[i] = items[i].ID
+	}
+	var byItem map[string][]data.Attachment
+	if h.store != nil {
+		var err error
+		byItem, err = data.ListAttachmentsForItems(r.Context(), h.db, ids)
+		if err != nil {
+			return nil, err
+		}
+	}
+	out := make([]ItemResponse, len(items))
+	for i, item := range items {
+		out[i].Item = item
+		out[i].Attachments = []AttachmentResponse{}
+		if h.store == nil {
+			continue
+		}
+		if list := byItem[item.ID]; len(list) > 0 {
+			signed, err := SignAttachments(r.Context(), h.store, list)
+			if err != nil {
+				return nil, err
+			}
+			out[i].Attachments = signed
+		}
+	}
+	return out, nil
+}
+
+// itemToResponse is the single-item analogue. Cheaper than going through
+// itemsToResponses for the common GET-by-id path.
+func (h *ItemsHandler) itemToResponse(r *http.Request, item data.Item) (ItemResponse, error) {
+	resp := ItemResponse{Item: item, Attachments: []AttachmentResponse{}}
+	if h.store == nil {
+		return resp, nil
+	}
+	list, err := data.ListAttachmentsForItem(r.Context(), h.db, item.ID)
+	if err != nil {
+		return resp, err
+	}
+	if len(list) > 0 {
+		signed, err := SignAttachments(r.Context(), h.store, list)
+		if err != nil {
+			return resp, err
+		}
+		resp.Attachments = signed
+	}
+	return resp, nil
 }
 
 // HandleCollection serves /v1/projects/{slug}/items — GET (list) and POST (create).
@@ -186,8 +250,15 @@ func (h *ItemsHandler) list(w http.ResponseWriter, r *http.Request, slugOrID str
 		}
 	}
 
+	responses, err := h.itemsToResponses(r, items)
+	if err != nil {
+		log.Printf("itemsToResponses: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(items); err != nil {
+	if err := json.NewEncoder(w).Encode(responses); err != nil {
 		log.Printf("encode items: %v", err)
 	}
 }
@@ -231,9 +302,11 @@ func (h *ItemsHandler) create(w http.ResponseWriter, r *http.Request, slugOrID s
 		return
 	}
 
+	// Brand-new item — no tags or attachments yet, but wrap for shape parity.
+	resp := ItemResponse{Item: *item, Attachments: []AttachmentResponse{}}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(item); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("encode item: %v", err)
 	}
 }
@@ -263,8 +336,15 @@ func (h *ItemsHandler) get(w http.ResponseWriter, r *http.Request, slugOrID stri
 	}
 	item.Tags = tags
 
+	resp, err := h.itemToResponse(r, *item)
+	if err != nil {
+		log.Printf("itemToResponse: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(item); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("encode item: %v", err)
 	}
 }
@@ -357,8 +437,15 @@ func (h *ItemsHandler) update(w http.ResponseWriter, r *http.Request, slugOrID s
 	}
 	updated.Tags = tags
 
+	resp, err := h.itemToResponse(r, *updated)
+	if err != nil {
+		log.Printf("itemToResponse: %v", err)
+		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(updated); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("encode item: %v", err)
 	}
 }

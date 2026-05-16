@@ -9,7 +9,8 @@
 		type ItemKind,
 		type ItemStatus
 	} from '$lib/api/items';
-	import { ApiError } from '$lib/api';
+	import { ApiError, errMsg } from '$lib/api';
+	import { appConfig } from '$lib/config.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -17,6 +18,9 @@
 	import KindPicker from '$lib/components/KindPicker.svelte';
 	import StatusPicker from '$lib/components/StatusPicker.svelte';
 	import ItemBody from '$lib/components/ItemBody.svelte';
+	import AttachmentList from '$lib/components/AttachmentList.svelte';
+	import AttachmentUploader from '$lib/components/AttachmentUploader.svelte';
+	import GooglePhotosImportFlow from '$lib/components/GooglePhotosImportFlow.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { ArrowLeft, Pencil, Trash2, Check, X } from '@lucide/svelte';
@@ -29,6 +33,17 @@
 	let editing = $state(false);
 	let saving = $state(false);
 	let deleteConfirmOpen = $state(false);
+	let gphotosOpen = $state(false);
+	const attachmentsEnabled = $derived(appConfig.config?.attachmentsEnabled ?? false);
+
+	async function refreshItemFromServer() {
+		if (!project || !item) return;
+		try {
+			item = await getItem(project.slug, item.sequence);
+		} catch (e) {
+			saveError = errMsg(e);
+		}
+	}
 
 	// Edit-mode scratch state
 	let editTitle = $state('');
@@ -55,7 +70,7 @@
 				if (e instanceof ApiError && e.status === 404) {
 					notFound = true;
 				} else {
-					loadError = e instanceof ApiError ? e.message : String(e);
+					loadError = errMsg(e);
 				}
 			});
 	});
@@ -94,7 +109,7 @@
 			item = updated;
 			editing = false;
 		} catch (e) {
-			saveError = e instanceof ApiError ? e.message : String(e);
+			saveError = errMsg(e);
 		} finally {
 			saving = false;
 		}
@@ -106,7 +121,7 @@
 			await deleteItem(project.slug, item.sequence);
 			goto(`/projects/${project.slug}`);
 		} catch (e) {
-			saveError = e instanceof ApiError ? e.message : String(e);
+			saveError = errMsg(e);
 		}
 	}
 
@@ -181,6 +196,26 @@
 			</header>
 
 			<ItemBody {item} />
+
+			{#if attachmentsEnabled}
+				<section class="mt-8 border-t border-line pt-6">
+					<h2 class="mb-3 text-sm font-medium text-fg">Attachments</h2>
+					<AttachmentUploader
+						slug={project.slug}
+						seq={item.sequence}
+						onUploaded={refreshItemFromServer}
+						onGooglePhotosClick={() => (gphotosOpen = true)}
+					/>
+					<div class="mt-3">
+						<AttachmentList
+							slug={project.slug}
+							seq={item.sequence}
+							attachments={item.attachments}
+							onDeleted={refreshItemFromServer}
+						/>
+					</div>
+				</section>
+			{/if}
 
 			<footer class="mt-10 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-faint">
 				<span>Created {relativeCreated}</span>
@@ -262,6 +297,12 @@
 				cancelLabel="Keep it"
 				destructive={true}
 				onConfirm={performDelete}
+			/>
+			<GooglePhotosImportFlow
+				bind:open={gphotosOpen}
+				slug={project.slug}
+				seq={item.sequence}
+				onImported={refreshItemFromServer}
 			/>
 		{/if}
 	</main>

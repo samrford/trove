@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { getProject, updateProject, deleteProject, type Project } from '$lib/api/projects';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ColourPicker from '$lib/components/ColourPicker.svelte';
@@ -50,7 +50,7 @@
 					colour = res.colour;
 				})
 				.catch((e) => {
-					loadError = e instanceof ApiError ? e.message : String(e);
+					loadError = errMsg(e);
 				});
 		}
 	});
@@ -70,7 +70,7 @@
 			});
 			goto(`/projects/${updated.slug}`);
 		} catch (e) {
-			saveError = e instanceof ApiError ? e.message : String(e);
+			saveError = errMsg(e);
 			saving = false;
 		}
 	}
@@ -82,7 +82,7 @@
 			await deleteProject(project.slug);
 			goto('/');
 		} catch (e) {
-			saveError = e instanceof ApiError ? e.message : String(e);
+			saveError = errMsg(e);
 			deleting = false;
 		}
 	}

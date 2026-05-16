@@ -12,7 +12,7 @@
 		ITEM_KINDS
 	} from '$lib/api/items';
 	import { listTagsForProject, type TagWithCount } from '$lib/api/tags';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -24,7 +24,16 @@
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, KIND_PLURAL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { relativeTime } from '$lib/time';
-	import { ArrowLeft, Pencil, Trash2, Plus, ChevronDown, ChevronRight, X } from '@lucide/svelte';
+	import {
+		ArrowLeft,
+		Pencil,
+		Trash2,
+		Plus,
+		ChevronDown,
+		ChevronRight,
+		X,
+		Paperclip
+	} from '@lucide/svelte';
 
 	let project = $state<Project | null>(null);
 	let items = $state<Item[] | null>(null);
@@ -135,7 +144,7 @@
 			items = items!.map((i) => (i.id === updated.id ? updated : i));
 		} catch (e) {
 			items = snapshot;
-			itemError = e instanceof ApiError ? e.message : String(e);
+			itemError = errMsg(e);
 		}
 	}
 
@@ -155,7 +164,7 @@
 					tagsInProject = tgs;
 				})
 				.catch((e) => {
-					loadError = e instanceof ApiError ? e.message : String(e);
+					loadError = errMsg(e);
 				});
 		}
 	});
@@ -167,7 +176,7 @@
 		const opts = selectedTagSlugs.length > 0 ? { tags: selectedTagSlugs, tagMode } : undefined;
 		listItems(project.slug, opts)
 			.then((res) => (items = res))
-			.catch((e) => (itemError = e instanceof ApiError ? e.message : String(e)));
+			.catch((e) => (itemError = errMsg(e)));
 	});
 
 	function toggleTagFilter(slug: string) {
@@ -191,7 +200,7 @@
 			refreshTagsInProject();
 		} catch (e) {
 			items = snapshot;
-			itemError = e instanceof ApiError ? e.message : String(e);
+			itemError = errMsg(e);
 		}
 	}
 
@@ -233,7 +242,7 @@
 			await deleteProject(project.slug);
 			goto('/');
 		} catch (e) {
-			loadError = e instanceof ApiError ? e.message : String(e);
+			loadError = errMsg(e);
 			deleting = false;
 		}
 	}
@@ -266,6 +275,15 @@
 			<span class="rounded-full px-2 py-0.5 text-xs font-medium" style={kindChipStyle(item.kind)}>
 				{KIND_LABEL[item.kind]}
 			</span>
+			{#if item.attachments.length > 0}
+				<span
+					class="inline-flex items-center gap-0.5 text-xs text-fg-faint"
+					title={`${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}`}
+				>
+					<Paperclip class="h-3 w-3" />
+					{item.attachments.length}
+				</span>
+			{/if}
 			<a
 				href={`/projects/${project!.slug}/${item.sequence}`}
 				class="font-mono text-xs text-fg-faint hover:text-fg hover:underline"

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { listProjects, type Project } from '$lib/api/projects';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { projectColourVar } from '$lib/projectColours';
 	import { Plus } from '@lucide/svelte';
@@ -18,7 +18,7 @@
 			listProjects()
 				.then((res) => (projects = res))
 				.catch((e) => {
-					error = e instanceof ApiError ? e.message : String(e);
+					error = errMsg(e);
 				});
 		}
 	});

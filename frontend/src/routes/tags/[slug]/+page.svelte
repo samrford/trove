@@ -9,7 +9,7 @@
 		type Tag
 	} from '$lib/api/tags';
 	import type { Item } from '$lib/api/items';
-	import { ApiError } from '$lib/api';
+	import { errMsg } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
@@ -59,7 +59,7 @@
 			})
 			.catch((e) => {
 				if (cancelled) return;
-				loadError = e instanceof ApiError ? e.message : String(e);
+				loadError = errMsg(e);
 			});
 		return () => {
 			cancelled = true;
@@ -128,7 +128,7 @@
 				goto(`/tags/${updated.slug}`, { replaceState: true });
 			}
 		} catch (e) {
-			saveError = e instanceof ApiError ? e.message : String(e);
+			saveError = errMsg(e);
 		} finally {
 			saving = false;
 		}
@@ -141,7 +141,7 @@
 			await deleteTag(tag.slug);
 			goto('/tags');
 		} catch (e) {
-			saveError = e instanceof ApiError ? e.message : String(e);
+			saveError = errMsg(e);
 			deleting = false;
 			confirmingDelete = false;
 		}

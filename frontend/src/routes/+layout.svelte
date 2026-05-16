@@ -2,9 +2,16 @@
 	import './layout.css';
 	import { auth } from '$lib/auth.svelte';
 	import { sidebar } from '$lib/sidebar.svelte';
+	import { appConfig } from '$lib/config.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 
 	let { children } = $props();
+
+	$effect(() => {
+		if (auth.user && !appConfig.config && !appConfig.loading) {
+			appConfig.load();
+		}
+	});
 </script>
 
 <svelte:head>

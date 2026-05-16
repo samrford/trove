@@ -49,6 +49,7 @@
 		"@lucide/svelte": "^1.14.0",
 		"@supabase/supabase-js": "^2.105.4",
 		"dompurify": "^3.4.2",
+		"google-photos-picker-client": "^0.3.0",
 		"marked": "^18.0.3"
 	},
 	"lint-staged": {

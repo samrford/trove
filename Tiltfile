@@ -23,17 +23,33 @@ env = load_dotenv('backend/.env')
 def envvar(key, fallback=''):
     return env.get(key, os.environ.get(key, fallback))
 
+def export_env_line(key, fallback=''):
+    # Build a single `KEY="value"` fragment for the serve_cmd.
+    return key + '="' + envvar(key, fallback) + '" \\\n    '
+
 local_resource(
   'backend',
   cmd='cd backend && go build -o bin/server ./cmd/server',
   serve_cmd='''
-    cd backend && \
-    DATABASE_URL="postgres://trove:password@localhost:5434/trove?sslmode=disable" \
-    SUPABASE_URL="''' + envvar('SUPABASE_URL') + '''" \
-    PORT="8082" \
-    ./bin/server
+    cd backend && \\
+    ''' +
+    export_env_line('DATABASE_URL', 'postgres://trove:password@localhost:5434/trove?sslmode=disable') +
+    export_env_line('SUPABASE_URL') +
+    export_env_line('PORT', '8082') +
+    export_env_line('STORAGE_ENDPOINT') +
+    export_env_line('STORAGE_ACCESS_KEY_ID') +
+    export_env_line('STORAGE_SECRET_ACCESS_KEY') +
+    export_env_line('STORAGE_BUCKET') +
+    export_env_line('STORAGE_REGION') +
+    export_env_line('STORAGE_USE_PATH_STYLE') +
+    export_env_line('GOOGLE_CLIENT_ID') +
+    export_env_line('GOOGLE_CLIENT_SECRET') +
+    export_env_line('GOOGLE_REDIRECT_URL') +
+    export_env_line('GOOGLE_TOKEN_ENCRYPTION_KEY') +
+    export_env_line('FRONTEND_ORIGIN') +
+    '''./bin/server
   ''',
-  deps=['backend'],
+  deps=['backend', 'backend/.env'],
   ignore=['backend/bin']
 )
 
