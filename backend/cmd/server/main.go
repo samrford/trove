@@ -63,7 +63,7 @@ func main() {
 
 	// Object storage — optional. If STORAGE_ENDPOINT is unset, attachments are
 	// disabled: the attachment routes below are gated on store != nil and
-	// simply aren't registered. If it IS set but init fails, that's a hard
+	// simply aren't registered. If it is set but init fails, that's a hard
 	// startup error — a misconfigured store shouldn't run silently degraded.
 	var store storage.FileStore
 	if endpoint := os.Getenv("STORAGE_ENDPOINT"); endpoint != "" {
