@@ -21,6 +21,7 @@
 	import AttachmentList from '$lib/components/AttachmentList.svelte';
 	import AttachmentUploader from '$lib/components/AttachmentUploader.svelte';
 	import GooglePhotosImportFlow from '$lib/components/GooglePhotosImportFlow.svelte';
+	import ActivityRail from '$lib/components/ActivityRail.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { ArrowLeft, Pencil, Trash2, Check, X } from '@lucide/svelte';
@@ -217,6 +218,11 @@
 				</section>
 			{/if}
 
+			<section class="mt-8 border-t border-line pt-6">
+				<h2 class="mb-3 text-sm font-medium text-fg">Activity</h2>
+				<ActivityRail slug={project.slug} itemId={item.id} refreshKey={item} />
+			</section>
+
 			<footer class="mt-10 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-faint">
 				<span>Created {relativeCreated}</span>
 				<span>Updated {relativeUpdated}</span>
@@ -292,7 +298,7 @@
 			<ConfirmDialog
 				bind:open={deleteConfirmOpen}
 				title={`Delete item #${item.sequence}?`}
-				message="This is permanent. The item and any future attachments / activity for it will be removed."
+				message="This is permanent. The item and its attachments will be deleted. Its activity history is kept."
 				confirmLabel="Delete item"
 				cancelLabel="Keep it"
 				destructive={true}

@@ -21,10 +21,13 @@
 	import StatusIcon from '$lib/components/StatusIcon.svelte';
 	import ItemTagChip from '$lib/components/ItemTagChip.svelte';
 	import TagFilterPopover from '$lib/components/TagFilterPopover.svelte';
+	import ActivityStrip from '$lib/components/ActivityStrip.svelte';
+	import ActivityPanel from '$lib/components/ActivityPanel.svelte';
 	import { projectColourVar } from '$lib/projectColours';
 	import { KIND_LABEL, KIND_PLURAL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
 	import { relativeTime } from '$lib/time';
 	import {
+		Activity,
 		ArrowLeft,
 		Pencil,
 		Trash2,
@@ -50,6 +53,7 @@
 	let deleteConfirmOpen = $state(false);
 	let deleting = $state(false);
 	let addItemOpen = $state(false);
+	let activityPanelOpen = $state(false);
 
 	let draggingId = $state<string | null>(null);
 	let dragOverStatus = $state<ItemStatus | null>(null);
@@ -375,6 +379,15 @@
 								{project.name}
 							</h1>
 							<div class="flex shrink-0 items-center gap-1">
+								<button
+									type="button"
+									onclick={() => (activityPanelOpen = true)}
+									aria-label="Project activity"
+									title="Activity"
+									class="rounded-md p-2 text-fg-muted transition hover:bg-card-2 hover:text-fg"
+								>
+									<Activity class="h-4 w-4" />
+								</button>
 								<a
 									href={`/projects/${project.slug}/edit`}
 									aria-label="Edit project"
@@ -526,6 +539,14 @@
 				{/if}
 			{/if}
 
+			<div class="mt-6">
+				<ActivityStrip
+					slug={project.slug}
+					onOpenPanel={() => (activityPanelOpen = true)}
+					refreshKey={items}
+				/>
+			</div>
+
 			<ConfirmDialog
 				bind:open={deleteConfirmOpen}
 				title={`Delete "${project.name}"?`}
@@ -551,6 +572,8 @@
 				onPrev={prevItem ? goPrev : undefined}
 				onNext={nextItem ? goNext : undefined}
 			/>
+
+			<ActivityPanel bind:open={activityPanelOpen} slug={project.slug} refreshKey={items} />
 		{/if}
 	</main>
 {/if}

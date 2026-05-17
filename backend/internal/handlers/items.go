@@ -294,8 +294,23 @@ func (h *ItemsHandler) create(w http.ResponseWriter, r *http.Request, slugOrID s
 		return
 	}
 
-	item, err := data.CreateItem(r.Context(), h.db, project.ID, userID,
-		data.ItemKind(body.Kind), body.Title, body.Body)
+	var item *data.Item
+	err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var err error
+		item, err = data.CreateItem(r.Context(), tx, project.ID, userID,
+			data.ItemKind(body.Kind), body.Title, body.Body)
+		if err != nil {
+			return err
+		}
+		_, err = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &item.ID,
+			ActorID:   userID,
+			Action:    data.ActivityItemCreated,
+			Payload:   map[string]any{"item": itemSnapshot(item)},
+		})
+		return err
+	})
 	if err != nil {
 		log.Printf("CreateItem: %v", err)
 		http.Error(w, `{"error":"Failed to create item"}`, http.StatusInternalServerError)
@@ -422,7 +437,26 @@ func (h *ItemsHandler) update(w http.ResponseWriter, r *http.Request, slugOrID s
 		patch.Position = body.Position
 	}
 
-	updated, err := data.UpdateItem(r.Context(), h.db, existing.ID, patch)
+	var updated *data.Item
+	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		updated, e = data.UpdateItem(r.Context(), tx, existing.ID, patch)
+		if e != nil {
+			return e
+		}
+		diff := itemDiff(existing, updated)
+		if len(diff) == 0 {
+			return nil // no-op PATCH, do not log an activity
+		}
+		_, e = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &updated.ID,
+			ActorID:   userID,
+			Action:    data.ActivityItemUpdated,
+			Payload:   map[string]any{"item": itemSnapshot(updated), "diff": diff},
+		})
+		return e
+	})
 	if err != nil {
 		log.Printf("UpdateItem: %v", err)
 		http.Error(w, `{"error":"Failed to update item"}`, http.StatusInternalServerError)
@@ -493,8 +527,12 @@ func (h *ItemsHandler) attachTag(w http.ResponseWriter, r *http.Request, slugOrI
 	case body.TagSlug != "":
 		tag, err = data.GetTagForUser(r.Context(), h.db, userID, body.TagSlug)
 	case strings.TrimSpace(body.Name) != "":
-		tag, _, err = data.FindOrCreateTag(r.Context(), h.db, userID,
-			body.Name, "", nil, body.Icon, body.Colour)
+		err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+			var e error
+			tag, _, e = data.FindOrCreateTag(r.Context(), tx, userID,
+				body.Name, "", nil, body.Icon, body.Colour)
+			return e
+		})
 	default:
 		http.Error(w, `{"error":"tag_id, tag_slug, or name required"}`, http.StatusBadRequest)
 		return
@@ -509,7 +547,19 @@ func (h *ItemsHandler) attachTag(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	if err := data.AttachTagToItem(r.Context(), h.db, item.ID, tag.ID, userID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		if e := data.AttachTagToItem(r.Context(), tx, item.ID, tag.ID, userID); e != nil {
+			return e
+		}
+		_, e := data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &item.ID,
+			ActorID:   userID,
+			Action:    data.ActivityItemTagAdded,
+			Payload:   map[string]any{"item": itemSnapshot(item), "tag": map[string]any{"slug": tag.Slug, "name": tag.Name}},
+		})
+		return e
+	}); err != nil {
 		log.Printf("AttachTagToItem: %v", err)
 		http.Error(w, `{"error":"Failed to attach tag"}`, http.StatusInternalServerError)
 		return
@@ -554,7 +604,19 @@ func (h *ItemsHandler) detachTag(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	if err := data.DetachTagFromItem(r.Context(), h.db, item.ID, tag.ID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		if e := data.DetachTagFromItem(r.Context(), tx, item.ID, tag.ID); e != nil {
+			return e
+		}
+		_, e := data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &item.ID,
+			ActorID:   userID,
+			Action:    data.ActivityItemTagRemoved,
+			Payload:   map[string]any{"item": itemSnapshot(item), "tag": map[string]any{"slug": tag.Slug, "name": tag.Name}},
+		})
+		return e
+	}); err != nil {
 		log.Printf("DetachTagFromItem: %v", err)
 		http.Error(w, `{"error":"Failed to detach tag"}`, http.StatusInternalServerError)
 		return
@@ -584,7 +646,18 @@ func (h *ItemsHandler) delete(w http.ResponseWriter, r *http.Request, slugOrID s
 		return
 	}
 
-	if err := data.DeleteItem(r.Context(), h.db, existing.ID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		if _, e := data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &existing.ID,
+			ActorID:   userID,
+			Action:    data.ActivityItemDeleted,
+			Payload:   map[string]any{"item": itemSnapshot(existing)},
+		}); e != nil {
+			return e
+		}
+		return data.DeleteItem(r.Context(), tx, existing.ID)
+	}); err != nil {
 		log.Printf("DeleteItem: %v", err)
 		http.Error(w, `{"error":"Failed to delete item"}`, http.StatusInternalServerError)
 		return

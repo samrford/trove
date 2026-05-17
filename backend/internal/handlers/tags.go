@@ -210,8 +210,14 @@ func (h *TagsHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, created, err := data.FindOrCreateTag(r.Context(), h.db, userID,
-		body.Name, body.Slug, body.Description, body.Icon, body.Colour)
+	var tag *data.Tag
+	var created bool
+	err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		tag, created, e = data.FindOrCreateTag(r.Context(), tx, userID,
+			body.Name, body.Slug, body.Description, body.Icon, body.Colour)
+		return e
+	})
 	if err != nil {
 		if errors.Is(err, data.ErrTagSlugTaken) {
 			http.Error(w, `{"error":"That slug is already taken — try another."}`, http.StatusConflict)

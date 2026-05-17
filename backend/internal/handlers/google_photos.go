@@ -141,15 +141,37 @@ func NewTroveSink(db *sql.DB, store storage.FileStore) photopicker.PhotoSink {
 			return "", fmt.Errorf("upload: %w", err)
 		}
 
-		att, err := data.CreateAttachment(ctx, db, data.CreateAttachmentParams{
-			ProjectID:   projectID,
-			ItemID:      &itemID,
-			StorageKey:  key,
-			Filename:    filename,
-			ContentType: contentType,
-			SizeBytes:   size,
-			Source:      data.AttachmentSourceGooglePhotos,
-			UploaderID:  userID,
+		var att *data.Attachment
+		err = data.WithRetry(ctx, db, func(tx *sql.Tx) error {
+			var e error
+			att, e = data.CreateAttachment(ctx, tx, data.CreateAttachmentParams{
+				ProjectID:   projectID,
+				ItemID:      &itemID,
+				StorageKey:  key,
+				Filename:    filename,
+				ContentType: contentType,
+				SizeBytes:   size,
+				Source:      data.AttachmentSourceGooglePhotos,
+				UploaderID:  userID,
+			})
+			if e != nil {
+				return e
+			}
+			it, e := data.GetItemByID(ctx, db, itemID)
+			if e != nil {
+				return e
+			}
+			_, e = data.LogActivity(ctx, tx, data.ActivityInput{
+				ProjectID: projectID,
+				ItemID:    &itemID,
+				ActorID:   userID,
+				Action:    data.ActivityAttachmentAdded,
+				Payload: map[string]any{
+					"item":       itemSnapshot(it),
+					"attachment": map[string]any{"filename": filename, "size_bytes": size, "source": data.AttachmentSourceGooglePhotos},
+				},
+			})
+			return e
 		})
 		if err != nil {
 			if delErr := store.Delete(ctx, key); delErr != nil {

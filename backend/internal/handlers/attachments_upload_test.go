@@ -41,12 +41,20 @@ func newUploadTestEnv(t *testing.T) (*sql.DB, string, string, int) {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	// Fresh owner per run → any slug is free (slugs are unique per owner).
-	proj, err := data.CreateProject(ctx, db, userID, "", "GP413 "+userID[:8], nil, nil, nil)
-	if err != nil {
+	var proj *data.Project
+	if err := data.WithRetry(ctx, db, func(tx *sql.Tx) error {
+		var e error
+		proj, e = data.CreateProject(ctx, tx, userID, "", "GP413 "+userID[:8], nil, nil, nil)
+		return e
+	}); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	item, err := data.CreateItem(ctx, db, proj.ID, userID, data.ItemKindTask, "target", nil)
-	if err != nil {
+	var item *data.Item
+	if err := data.WithRetry(ctx, db, func(tx *sql.Tx) error {
+		var e error
+		item, e = data.CreateItem(ctx, tx, proj.ID, userID, data.ItemKindTask, "target", nil)
+		return e
+	}); err != nil {
 		t.Fatalf("CreateItem: %v", err)
 	}
 	return db, userID, proj.Slug, item.Sequence

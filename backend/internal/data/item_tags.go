@@ -9,8 +9,8 @@ import (
 
 // AttachTagToItem links a tag to an item. Idempotent — re-attaching the same
 // tag is a silent no-op rather than an error.
-func AttachTagToItem(ctx context.Context, db *sql.DB, itemID, tagID, taggedBy string) error {
-	_, err := db.ExecContext(ctx, `
+func AttachTagToItem(ctx context.Context, tx *sql.Tx, itemID, tagID, taggedBy string) error {
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO item_tags (item_id, tag_id, tagged_by)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (item_id, tag_id) DO NOTHING
@@ -20,8 +20,8 @@ func AttachTagToItem(ctx context.Context, db *sql.DB, itemID, tagID, taggedBy st
 
 // DetachTagFromItem removes a tag from an item. Idempotent — detaching a tag
 // that wasn't attached succeeds silently.
-func DetachTagFromItem(ctx context.Context, db *sql.DB, itemID, tagID string) error {
-	_, err := db.ExecContext(ctx,
+func DetachTagFromItem(ctx context.Context, tx *sql.Tx, itemID, tagID string) error {
+	_, err := tx.ExecContext(ctx,
 		`DELETE FROM item_tags WHERE item_id = $1 AND tag_id = $2`,
 		itemID, tagID)
 	return err

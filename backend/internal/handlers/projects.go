@@ -123,8 +123,22 @@ func (h *ProjectsHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := data.CreateProject(r.Context(), h.db, userID, body.Slug, body.Name,
-		body.Description, body.Colour, body.Icon)
+	var project *data.Project
+	err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var err error
+		project, err = data.CreateProject(r.Context(), tx, userID, body.Slug, body.Name,
+			body.Description, body.Colour, body.Icon)
+		if err != nil {
+			return err
+		}
+		_, err = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ActorID:   userID,
+			Action:    data.ActivityProjectCreated,
+			Payload:   map[string]any{"project": projectSnapshot(project)},
+		})
+		return err
+	})
 	if err != nil {
 		if errors.Is(err, data.ErrSlugTaken) {
 			http.Error(w, `{"error":"That slug is already taken — try another."}`, http.StatusConflict)
@@ -206,8 +220,26 @@ func (h *ProjectsHandler) update(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	updated, err := data.UpdateProject(r.Context(), h.db, existing.ID, body.Name, body.Slug,
-		body.Description, body.Colour, body.Icon)
+	var updated *data.Project
+	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		updated, e = data.UpdateProject(r.Context(), tx, existing.ID, body.Name, body.Slug,
+			body.Description, body.Colour, body.Icon)
+		if e != nil {
+			return e
+		}
+		diff := projectDiff(existing, updated)
+		if len(diff) == 0 {
+			return nil
+		}
+		_, e = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: existing.ID,
+			ActorID:   userID,
+			Action:    data.ActivityProjectUpdated,
+			Payload:   map[string]any{"project": projectSnapshot(updated), "diff": diff},
+		})
+		return e
+	})
 	if err != nil {
 		if errors.Is(err, data.ErrSlugTaken) {
 			http.Error(w, `{"error":"That slug is already taken — try another."}`, http.StatusConflict)
@@ -244,7 +276,10 @@ func (h *ProjectsHandler) delete(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	if err := data.DeleteProject(r.Context(), h.db, existing.ID); err != nil {
+	// No activity log, the project's own feed dies with it.
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		return data.DeleteProject(r.Context(), tx, existing.ID)
+	}); err != nil {
 		log.Printf("DeleteProject: %v", err)
 		http.Error(w, `{"error":"Failed to delete project"}`, http.StatusInternalServerError)
 		return
