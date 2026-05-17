@@ -62,9 +62,11 @@ func generateSlug(name string) string {
 	return strings.TrimRight(b.String(), "-")
 }
 
-// CreateProject inserts a project + initial sequence row in one transaction.
-// If slug is empty, it's auto-derived from name.
-func CreateProject(ctx context.Context, db *sql.DB, ownerID, slug, name string, description, colour, icon *string) (*Project, error) {
+// CreateProject inserts a project + its initial sequence row. The two
+// statements must run in one transaction (call inside WithRetry) so a project
+// can't exist without its sequence row and a same-unit activity row commits
+// with it. If slug is empty, it's auto-derived from name.
+func CreateProject(ctx context.Context, tx *sql.Tx, ownerID, slug, name string, description, colour, icon *string) (*Project, error) {
 	if slug == "" {
 		slug = generateSlug(name)
 	}
@@ -72,14 +74,8 @@ func CreateProject(ctx context.Context, db *sql.DB, ownerID, slug, name string, 
 		return nil, errors.New("project name must contain at least one alphanumeric character")
 	}
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
 	var p Project
-	err = tx.QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		INSERT INTO projects (slug, name, description, colour, icon, owner_id)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, slug, name, description, colour, icon, owner_id, archived_at, created_at, updated_at
@@ -97,10 +93,6 @@ func CreateProject(ctx context.Context, db *sql.DB, ownerID, slug, name string, 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO project_item_sequences (project_id, next_sequence) VALUES ($1, 1)
 	`, p.ID); err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -138,9 +130,9 @@ func ListProjectsForUser(ctx context.Context, db *sql.DB, userID string) ([]Proj
 
 // UpdateProject overwrites the editable fields on a project. If slug is
 // non-empty it's also updated; pass "" to leave it unchanged.
-func UpdateProject(ctx context.Context, db *sql.DB, projectID, name, slug string, description, colour, icon *string) (*Project, error) {
+func UpdateProject(ctx context.Context, tx *sql.Tx, projectID, name, slug string, description, colour, icon *string) (*Project, error) {
 	var p Project
-	err := db.QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		UPDATE projects
 		SET name = $1,
 		    slug = COALESCE(NULLIF($2, ''), slug),
@@ -165,8 +157,8 @@ func UpdateProject(ctx context.Context, db *sql.DB, projectID, name, slug string
 
 // DeleteProject removes a project and all dependent rows (members, sequences,
 // future items/tags/etc.) via ON DELETE CASCADE on every FK pointing at it.
-func DeleteProject(ctx context.Context, db *sql.DB, projectID string) error {
-	res, err := db.ExecContext(ctx, `DELETE FROM projects WHERE id = $1`, projectID)
+func DeleteProject(ctx context.Context, tx *sql.Tx, projectID string) error {
+	res, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = $1`, projectID)
 	if err != nil {
 		return err
 	}

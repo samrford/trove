@@ -294,8 +294,13 @@ func (h *ItemsHandler) create(w http.ResponseWriter, r *http.Request, slugOrID s
 		return
 	}
 
-	item, err := data.CreateItem(r.Context(), h.db, project.ID, userID,
-		data.ItemKind(body.Kind), body.Title, body.Body)
+	var item *data.Item
+	err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var err error
+		item, err = data.CreateItem(r.Context(), tx, project.ID, userID,
+			data.ItemKind(body.Kind), body.Title, body.Body)
+		return err
+	})
 	if err != nil {
 		log.Printf("CreateItem: %v", err)
 		http.Error(w, `{"error":"Failed to create item"}`, http.StatusInternalServerError)
@@ -422,7 +427,12 @@ func (h *ItemsHandler) update(w http.ResponseWriter, r *http.Request, slugOrID s
 		patch.Position = body.Position
 	}
 
-	updated, err := data.UpdateItem(r.Context(), h.db, existing.ID, patch)
+	var updated *data.Item
+	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		updated, e = data.UpdateItem(r.Context(), tx, existing.ID, patch)
+		return e
+	})
 	if err != nil {
 		log.Printf("UpdateItem: %v", err)
 		http.Error(w, `{"error":"Failed to update item"}`, http.StatusInternalServerError)
@@ -493,8 +503,12 @@ func (h *ItemsHandler) attachTag(w http.ResponseWriter, r *http.Request, slugOrI
 	case body.TagSlug != "":
 		tag, err = data.GetTagForUser(r.Context(), h.db, userID, body.TagSlug)
 	case strings.TrimSpace(body.Name) != "":
-		tag, _, err = data.FindOrCreateTag(r.Context(), h.db, userID,
-			body.Name, "", nil, body.Icon, body.Colour)
+		err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+			var e error
+			tag, _, e = data.FindOrCreateTag(r.Context(), tx, userID,
+				body.Name, "", nil, body.Icon, body.Colour)
+			return e
+		})
 	default:
 		http.Error(w, `{"error":"tag_id, tag_slug, or name required"}`, http.StatusBadRequest)
 		return
@@ -509,7 +523,9 @@ func (h *ItemsHandler) attachTag(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	if err := data.AttachTagToItem(r.Context(), h.db, item.ID, tag.ID, userID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		return data.AttachTagToItem(r.Context(), tx, item.ID, tag.ID, userID)
+	}); err != nil {
 		log.Printf("AttachTagToItem: %v", err)
 		http.Error(w, `{"error":"Failed to attach tag"}`, http.StatusInternalServerError)
 		return
@@ -554,7 +570,9 @@ func (h *ItemsHandler) detachTag(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	if err := data.DetachTagFromItem(r.Context(), h.db, item.ID, tag.ID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		return data.DetachTagFromItem(r.Context(), tx, item.ID, tag.ID)
+	}); err != nil {
 		log.Printf("DetachTagFromItem: %v", err)
 		http.Error(w, `{"error":"Failed to detach tag"}`, http.StatusInternalServerError)
 		return
@@ -584,7 +602,9 @@ func (h *ItemsHandler) delete(w http.ResponseWriter, r *http.Request, slugOrID s
 		return
 	}
 
-	if err := data.DeleteItem(r.Context(), h.db, existing.ID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		return data.DeleteItem(r.Context(), tx, existing.ID)
+	}); err != nil {
 		log.Printf("DeleteItem: %v", err)
 		http.Error(w, `{"error":"Failed to delete item"}`, http.StatusInternalServerError)
 		return

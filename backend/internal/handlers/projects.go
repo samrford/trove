@@ -123,8 +123,13 @@ func (h *ProjectsHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := data.CreateProject(r.Context(), h.db, userID, body.Slug, body.Name,
-		body.Description, body.Colour, body.Icon)
+	var project *data.Project
+	err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var err error
+		project, err = data.CreateProject(r.Context(), tx, userID, body.Slug, body.Name,
+			body.Description, body.Colour, body.Icon)
+		return err
+	})
 	if err != nil {
 		if errors.Is(err, data.ErrSlugTaken) {
 			http.Error(w, `{"error":"That slug is already taken — try another."}`, http.StatusConflict)
@@ -206,8 +211,13 @@ func (h *ProjectsHandler) update(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	updated, err := data.UpdateProject(r.Context(), h.db, existing.ID, body.Name, body.Slug,
-		body.Description, body.Colour, body.Icon)
+	var updated *data.Project
+	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		updated, e = data.UpdateProject(r.Context(), tx, existing.ID, body.Name, body.Slug,
+			body.Description, body.Colour, body.Icon)
+		return e
+	})
 	if err != nil {
 		if errors.Is(err, data.ErrSlugTaken) {
 			http.Error(w, `{"error":"That slug is already taken — try another."}`, http.StatusConflict)
@@ -244,7 +254,9 @@ func (h *ProjectsHandler) delete(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
-	if err := data.DeleteProject(r.Context(), h.db, existing.ID); err != nil {
+	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		return data.DeleteProject(r.Context(), tx, existing.ID)
+	}); err != nil {
 		log.Printf("DeleteProject: %v", err)
 		http.Error(w, `{"error":"Failed to delete project"}`, http.StatusInternalServerError)
 		return

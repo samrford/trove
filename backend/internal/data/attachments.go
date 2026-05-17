@@ -59,8 +59,8 @@ type CreateAttachmentParams struct {
 }
 
 // CreateAttachment inserts a new row and returns the canonical record.
-func CreateAttachment(ctx context.Context, db *sql.DB, p CreateAttachmentParams) (*Attachment, error) {
-	row := db.QueryRowContext(ctx, `
+func CreateAttachment(ctx context.Context, tx *sql.Tx, p CreateAttachmentParams) (*Attachment, error) {
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO attachments (project_id, item_id, storage_key, filename, content_type, size_bytes, source, uploader_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING `+attachmentColumns,
@@ -125,9 +125,9 @@ func ListAttachmentsForItems(ctx context.Context, db *sql.DB, itemIDs []string) 
 
 // DeleteAttachment removes the row and returns the storage_key so the handler
 // can purge the underlying object. Returns ErrNotFound if no row matched.
-func DeleteAttachment(ctx context.Context, db *sql.DB, id string) (string, error) {
+func DeleteAttachment(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	var storageKey string
-	err := db.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`DELETE FROM attachments WHERE id = $1 RETURNING storage_key`, id).Scan(&storageKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrAttachmentNotFound

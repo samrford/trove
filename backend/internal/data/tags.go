@@ -76,7 +76,12 @@ func TagSlugExistsForOwner(ctx context.Context, db *sql.DB, ownerID, slug string
 // Otherwise inserts a new tag (created=true). Slug is auto-generated from name
 // when blank; an explicit slug that collides with a *different* tag returns
 // ErrTagSlugTaken.
-func FindOrCreateTag(ctx context.Context, db *sql.DB, userID, name, slug string, description, icon, colour *string) (*Tag, bool, error) {
+//
+// The speculative INSERT is bracketed in a SAVEPOINT: a unique-violation
+// aborts the whole enclosing transaction in Postgres, so without it the
+// auto-merge SELECT (and the rest of the caller's WithRetry unit) would fail.
+// Call within a transaction.
+func FindOrCreateTag(ctx context.Context, tx *sql.Tx, userID, name, slug string, description, icon, colour *string) (*Tag, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, false, errors.New("tag name is required")
@@ -90,7 +95,10 @@ func FindOrCreateTag(ctx context.Context, db *sql.DB, userID, name, slug string,
 		return nil, false, errors.New("tag name must contain at least one alphanumeric character")
 	}
 
-	row := db.QueryRowContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `SAVEPOINT find_or_create_tag`); err != nil {
+		return nil, false, err
+	}
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO tags (slug, name, name_normalised, description, icon, colour, user_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING `+tagColumns,
@@ -98,6 +106,9 @@ func FindOrCreateTag(ctx context.Context, db *sql.DB, userID, name, slug string,
 
 	tag, err := scanTag(row)
 	if err == nil {
+		if _, err := tx.ExecContext(ctx, `RELEASE SAVEPOINT find_or_create_tag`); err != nil {
+			return nil, false, err
+		}
 		return tag, true, nil
 	}
 
@@ -105,10 +116,14 @@ func FindOrCreateTag(ctx context.Context, db *sql.DB, userID, name, slug string,
 	if !ok || pqErr.Code != "23505" {
 		return nil, false, err
 	}
+	// Undo just the failed INSERT so the enclosing tx stays usable.
+	if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT find_or_create_tag`); err != nil {
+		return nil, false, err
+	}
 
 	// Auto-merge: normalised name already exists → return the existing tag.
 	if pqErr.Constraint == "tags_owner_normalised_unique" {
-		existing, err := getTagByNormalisedName(ctx, db, userID, normalised)
+		existing, err := getTagByNormalisedName(ctx, tx, userID, normalised)
 		return existing, false, err
 	}
 	// Slug collision with a *different* tag.
@@ -118,8 +133,8 @@ func FindOrCreateTag(ctx context.Context, db *sql.DB, userID, name, slug string,
 	return nil, false, err
 }
 
-func getTagByNormalisedName(ctx context.Context, db *sql.DB, userID, normalised string) (*Tag, error) {
-	row := db.QueryRowContext(ctx,
+func getTagByNormalisedName(ctx context.Context, tx *sql.Tx, userID, normalised string) (*Tag, error) {
+	row := tx.QueryRowContext(ctx,
 		`SELECT `+tagColumns+` FROM tags WHERE user_id = $1 AND name_normalised = $2`,
 		userID, normalised)
 	return scanTag(row)

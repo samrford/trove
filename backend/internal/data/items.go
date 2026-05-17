@@ -54,7 +54,7 @@ type Item struct {
 	CreatorID string     `json:"creator_id"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
-	Tags []Tag `json:"tags"`
+	Tags      []Tag      `json:"tags"`
 }
 
 type ItemFilter struct {
@@ -83,17 +83,13 @@ func scanItem(row interface {
 	return &i, nil
 }
 
-// CreateItem claims the next per-project sequence number atomically and
-// inserts the item in a single transaction.
-func CreateItem(ctx context.Context, db *sql.DB, projectID, creatorID string, kind ItemKind, title string, body *string) (*Item, error) {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
+// CreateItem claims the next per-project sequence number and inserts the item.
+// The two statements must run in one transaction (call inside WithRetry) so a
+// concurrent create can't be handed the same sequence and the activity row
+// commits in the same unit.
+func CreateItem(ctx context.Context, tx *sql.Tx, projectID, creatorID string, kind ItemKind, title string, body *string) (*Item, error) {
 	var seq int
-	err = tx.QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		UPDATE project_item_sequences
 		SET next_sequence = next_sequence + 1
 		WHERE project_id = $1
@@ -109,15 +105,7 @@ func CreateItem(ctx context.Context, db *sql.DB, projectID, creatorID string, ki
 		RETURNING `+itemColumns,
 		projectID, seq, kind, title, body, creatorID)
 
-	item, err := scanItem(row)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return item, nil
+	return scanItem(row)
 }
 
 // GetItemBySequence fetches an item by its per-project `#N` reference.
@@ -184,7 +172,6 @@ func ListItemsForProject(ctx context.Context, db *sql.DB, projectID string, filt
 	return items, rows.Err()
 }
 
-
 // ItemPatch carries optional fields for UpdateItem. nil = leave alone.
 // For Body and Position, pass a non-nil pointer to clear/set; the inner value
 // is what gets written.
@@ -197,7 +184,7 @@ type ItemPatch struct {
 }
 
 // UpdateItem applies a patch and bumps updated_at. Returns the updated row.
-func UpdateItem(ctx context.Context, db *sql.DB, itemID string, patch ItemPatch) (*Item, error) {
+func UpdateItem(ctx context.Context, tx *sql.Tx, itemID string, patch ItemPatch) (*Item, error) {
 	sets := []string{"updated_at = NOW()"}
 	args := []any{}
 
@@ -226,13 +213,13 @@ func UpdateItem(ctx context.Context, db *sql.DB, itemID string, patch ItemPatch)
 	query := `UPDATE items SET ` + strings.Join(sets, ", ") +
 		fmt.Sprintf(` WHERE id = $%d RETURNING `, len(args)) + itemColumns
 
-	row := db.QueryRowContext(ctx, query, args...)
+	row := tx.QueryRowContext(ctx, query, args...)
 	return scanItem(row)
 }
 
 // DeleteItem removes an item. Returns sql.ErrNoRows if the item didn't exist
-func DeleteItem(ctx context.Context, db *sql.DB, itemID string) error {
-	res, err := db.ExecContext(ctx, `DELETE FROM items WHERE id = $1`, itemID)
+func DeleteItem(ctx context.Context, tx *sql.Tx, itemID string) error {
+	res, err := tx.ExecContext(ctx, `DELETE FROM items WHERE id = $1`, itemID)
 	if err != nil {
 		return err
 	}

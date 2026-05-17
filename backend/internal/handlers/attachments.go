@@ -215,15 +215,20 @@ func (h *AttachmentsHandler) upload(w http.ResponseWriter, r *http.Request, slug
 	}
 
 	itemID := item.ID
-	att, err := data.CreateAttachment(r.Context(), h.db, data.CreateAttachmentParams{
-		ProjectID:   project.ID,
-		ItemID:      &itemID,
-		StorageKey:  storageKey,
-		Filename:    filename,
-		ContentType: contentType,
-		SizeBytes:   size,
-		Source:      data.AttachmentSourceUpload,
-		UploaderID:  userID,
+	var att *data.Attachment
+	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		att, e = data.CreateAttachment(r.Context(), tx, data.CreateAttachmentParams{
+			ProjectID:   project.ID,
+			ItemID:      &itemID,
+			StorageKey:  storageKey,
+			Filename:    filename,
+			ContentType: contentType,
+			SizeBytes:   size,
+			Source:      data.AttachmentSourceUpload,
+			UploaderID:  userID,
+		})
+		return e
 	})
 	if err != nil {
 		// DB insert failed after upload succeeded — purge the orphan now so we
@@ -277,7 +282,12 @@ func (h *AttachmentsHandler) delete(w http.ResponseWriter, r *http.Request, slug
 		return
 	}
 
-	storageKey, err := data.DeleteAttachment(r.Context(), h.db, attID)
+	var storageKey string
+	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
+		var e error
+		storageKey, e = data.DeleteAttachment(r.Context(), tx, attID)
+		return e
+	})
 	if err != nil {
 		if errors.Is(err, data.ErrAttachmentNotFound) {
 			http.Error(w, `{"error":"Attachment not found"}`, http.StatusNotFound)
