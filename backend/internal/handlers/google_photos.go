@@ -154,6 +154,23 @@ func NewTroveSink(db *sql.DB, store storage.FileStore) photopicker.PhotoSink {
 				Source:      data.AttachmentSourceGooglePhotos,
 				UploaderID:  userID,
 			})
+			if e != nil {
+				return e
+			}
+			it, e := data.GetItemByID(ctx, db, itemID)
+			if e != nil {
+				return e
+			}
+			_, e = data.LogActivity(ctx, tx, data.ActivityInput{
+				ProjectID: projectID,
+				ItemID:    &itemID,
+				ActorID:   userID,
+				Action:    data.ActivityAttachmentAdded,
+				Payload: map[string]any{
+					"item":       itemSnapshot(it),
+					"attachment": map[string]any{"filename": filename, "size_bytes": size, "source": data.AttachmentSourceGooglePhotos},
+				},
+			})
 			return e
 		})
 		if err != nil {

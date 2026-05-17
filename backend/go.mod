@@ -13,6 +13,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/samrford/google-photos-picker v0.3.0
+	github.com/sergi/go-diff v1.4.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
 )
 

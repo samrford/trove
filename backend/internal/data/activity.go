@@ -112,6 +112,18 @@ const (
 	maxActivityLimit     = 200
 )
 
+// ClampActivityLimit applies the same bound ListActivity uses internally —
+// exported so the endpoint can size its "next" cursor against the real page.
+func ClampActivityLimit(n int) int {
+	if n <= 0 {
+		return defaultActivityLimit
+	}
+	if n > maxActivityLimit {
+		return maxActivityLimit
+	}
+	return n
+}
+
 // ListActivity returns a project's events newest-first, keyset-paginated. The
 // (created_at, id) row-value comparison rides activity_project_created_idx.
 func ListActivity(ctx context.Context, db *sql.DB, f ActivityFilter) ([]Activity, error) {
@@ -139,14 +151,7 @@ func ListActivity(ctx context.Context, db *sql.DB, f ActivityFilter) ([]Activity
 		clauses = append(clauses, fmt.Sprintf("(created_at, id) < ($%d, $%d)", len(args)-1, len(args)))
 	}
 
-	limit := f.Limit
-	if limit <= 0 {
-		limit = defaultActivityLimit
-	}
-	if limit > maxActivityLimit {
-		limit = maxActivityLimit
-	}
-	args = append(args, limit)
+	args = append(args, ClampActivityLimit(f.Limit))
 
 	query := `SELECT ` + activityColumns + ` FROM activity WHERE ` +
 		strings.Join(clauses, " AND ") +

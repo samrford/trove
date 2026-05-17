@@ -88,6 +88,7 @@ func main() {
 	itemsHandler := handlers.NewItemsHandler(db, store)
 	tagsHandler := handlers.NewTagsHandler(db)
 	attachmentsHandler := handlers.NewAttachmentsHandler(db, store)
+	activityHandler := handlers.NewActivityHandler(db)
 
 	mux := http.NewServeMux()
 
@@ -105,6 +106,7 @@ func main() {
 	mux.HandleFunc("/v1/projects/{slug}/items/{seq}/tags", authed(itemsHandler.HandleItemTags))
 	mux.HandleFunc("/v1/projects/{slug}/items/{seq}/tags/{tagSlug}", authed(itemsHandler.HandleItemTagByID))
 	mux.HandleFunc("/v1/projects/{slug}/tags", authed(tagsHandler.HandleTagsForProject))
+	mux.HandleFunc("/v1/projects/{slug}/activity", authed(activityHandler.HandleForProject))
 	mux.HandleFunc("/v1/projects/", authed(projectsHandler.HandleByID))
 
 	mux.HandleFunc("/v1/tags", authed(tagsHandler.HandleCollection))
@@ -217,7 +219,7 @@ func main() {
 		})
 	}))
 
-	// TODO: register remaining handlers — groups, activity, events (SSE).
+	// TODO: register remaining handlers — groups, events (SSE).
 
 	mux.HandleFunc("/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

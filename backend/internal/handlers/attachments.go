@@ -228,6 +228,19 @@ func (h *AttachmentsHandler) upload(w http.ResponseWriter, r *http.Request, slug
 			Source:      data.AttachmentSourceUpload,
 			UploaderID:  userID,
 		})
+		if e != nil {
+			return e
+		}
+		_, e = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &itemID,
+			ActorID:   userID,
+			Action:    data.ActivityAttachmentAdded,
+			Payload: map[string]any{
+				"item":       itemSnapshot(item),
+				"attachment": map[string]any{"filename": filename, "size_bytes": size, "source": data.AttachmentSourceUpload},
+			},
+		})
 		return e
 	})
 	if err != nil {
@@ -286,6 +299,19 @@ func (h *AttachmentsHandler) delete(w http.ResponseWriter, r *http.Request, slug
 	err = data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
 		var e error
 		storageKey, e = data.DeleteAttachment(r.Context(), tx, attID)
+		if e != nil {
+			return e
+		}
+		_, e = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ItemID:    &item.ID,
+			ActorID:   userID,
+			Action:    data.ActivityAttachmentRemoved,
+			Payload: map[string]any{
+				"item":       itemSnapshot(item),
+				"attachment": map[string]any{"filename": att.Filename},
+			},
+		})
 		return e
 	})
 	if err != nil {

@@ -116,6 +116,13 @@ func GetItemBySequence(ctx context.Context, db *sql.DB, projectID string, sequen
 	return scanItem(row)
 }
 
+// GetItemByID fetches an item by UUID.
+func GetItemByID(ctx context.Context, db *sql.DB, id string) (*Item, error) {
+	row := db.QueryRowContext(ctx,
+		`SELECT `+itemColumns+` FROM items WHERE id = $1`, id)
+	return scanItem(row)
+}
+
 // ListItemsForProject returns items in a project, ordered by position DESC
 // (newest first by default). The filter struct is optional — zero-value means
 // "no filtering". For tag filters, TagMode="and" requires items to have all

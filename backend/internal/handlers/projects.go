@@ -128,6 +128,15 @@ func (h *ProjectsHandler) create(w http.ResponseWriter, r *http.Request) {
 		var err error
 		project, err = data.CreateProject(r.Context(), tx, userID, body.Slug, body.Name,
 			body.Description, body.Colour, body.Icon)
+		if err != nil {
+			return err
+		}
+		_, err = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: project.ID,
+			ActorID:   userID,
+			Action:    data.ActivityProjectCreated,
+			Payload:   map[string]any{"project": projectSnapshot(project)},
+		})
 		return err
 	})
 	if err != nil {
@@ -216,6 +225,19 @@ func (h *ProjectsHandler) update(w http.ResponseWriter, r *http.Request, slugOrI
 		var e error
 		updated, e = data.UpdateProject(r.Context(), tx, existing.ID, body.Name, body.Slug,
 			body.Description, body.Colour, body.Icon)
+		if e != nil {
+			return e
+		}
+		diff := projectDiff(existing, updated)
+		if len(diff) == 0 {
+			return nil
+		}
+		_, e = data.LogActivity(r.Context(), tx, data.ActivityInput{
+			ProjectID: existing.ID,
+			ActorID:   userID,
+			Action:    data.ActivityProjectUpdated,
+			Payload:   map[string]any{"project": projectSnapshot(updated), "diff": diff},
+		})
 		return e
 	})
 	if err != nil {
@@ -254,6 +276,7 @@ func (h *ProjectsHandler) delete(w http.ResponseWriter, r *http.Request, slugOrI
 		return
 	}
 
+	// No activity log, the project's own feed dies with it.
 	if err := data.WithRetry(r.Context(), h.db, func(tx *sql.Tx) error {
 		return data.DeleteProject(r.Context(), tx, existing.ID)
 	}); err != nil {
