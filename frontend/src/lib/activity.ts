@@ -357,3 +357,64 @@ export function matchesFilter(a: Activity, f: ActivityFilter): boolean {
 	if (!f.includeReorders && isReorderActivity(a)) return false;
 	return true;
 }
+
+// --- Day grouping (the dedicated page) ---
+
+export type ActivityDayGroup = { label: string; entries: Activity[] };
+
+function dayKey(d: Date): string {
+	return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * groupByDay buckets a newest-first list into contiguous calendar-day groups
+ * labelled "Today" / "Yesterday" / a localized date.
+ */
+export function groupByDay(entries: Activity[], now: Date = new Date()): ActivityDayGroup[] {
+	const today = dayKey(now);
+	const yest = new Date(now);
+	yest.setDate(yest.getDate() - 1);
+	const yesterday = dayKey(yest);
+
+	const groups: ActivityDayGroup[] = [];
+	for (const e of entries) {
+		const d = new Date(e.created_at);
+		const key = dayKey(d);
+		const includeYear = d.getFullYear() === now.getFullYear() ? undefined : 'numeric';
+		let label: string;
+		if (key === today) {
+			label = 'Today';
+		} else if (key === yesterday) {
+			label = 'Yesterday';
+		} else {
+			label = d.toLocaleDateString(undefined, {
+				month: 'short',
+				day: 'numeric',
+				year: includeYear
+			});
+		}
+		const last = groups.at(-1);
+		if (last?.label === label) last.entries.push(e);
+		else groups.push({ label, entries: [e] });
+	}
+	return groups;
+}
+
+// --- Action filter taxonomy (the dedicated page) ---
+//
+// Server filtering is by raw action.
+
+export const ACTION_GROUPS: Record<string, ActivityAction[]> = {
+	Created: ['item.created', 'project.created'],
+	Edited: ['item.updated', 'project.updated'],
+	Tags: ['item.tag_added', 'item.tag_removed'],
+	Files: ['attachment.added', 'attachment.removed'],
+	Deleted: ['item.deleted', 'project.deleted']
+};
+
+/** Flattens selected group names into the action list the API expects. */
+export function actionsForGroups(selected: string[]): ActivityAction[] {
+	const out = new Set<ActivityAction>();
+	for (const g of selected) for (const a of ACTION_GROUPS[g] ?? []) out.add(a);
+	return [...out];
+}

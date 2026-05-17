@@ -27,6 +27,7 @@
 	import AttachmentList from './AttachmentList.svelte';
 	import AttachmentUploader from './AttachmentUploader.svelte';
 	import GooglePhotosImportFlow from './GooglePhotosImportFlow.svelte';
+	import ActivityRail from './ActivityRail.svelte';
 	import { fly } from 'svelte/transition';
 	import { backInOut } from 'svelte/easing';
 	import {
@@ -470,6 +471,12 @@
 								/>
 							</div>
 						{/if}
+						<div class="mt-5 border-t border-line pt-4">
+							<h3 class="mb-2 text-xs font-medium tracking-wide text-fg-faint uppercase">
+								Activity
+							</h3>
+							<ActivityRail slug={project.slug} itemId={item.id} limit={3} refreshKey={item} />
+						</div>
 					</div>
 				{/key}
 			</div>
