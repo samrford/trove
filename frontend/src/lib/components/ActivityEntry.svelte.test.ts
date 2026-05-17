@@ -72,7 +72,10 @@ describe('ActivityEntry', () => {
 		render(ActivityEntry, {
 			entry: makeActivity({
 				action: 'item.updated',
-				payload: { item: { seq: 1, title: 'X', kind: 'task' }, diff: { position: { old: 1, new: 9 } } }
+				payload: {
+					item: { seq: 1, title: 'X', kind: 'task' },
+					diff: { position: { old: 1, new: 9 } }
+				}
 			})
 		});
 		await expect.element(page.getByText('reordered')).toBeVisible();

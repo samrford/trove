@@ -12,7 +12,10 @@ import { makeActivity } from './activity.fixtures';
 describe('describeActivity', () => {
 	it('item.created → "created this {kind}" + itemRef', () => {
 		const d = describeActivity(
-			makeActivity({ action: 'item.created', payload: { item: { seq: 42, title: 'Ship it', kind: 'task' } } })
+			makeActivity({
+				action: 'item.created',
+				payload: { item: { seq: 42, title: 'Ship it', kind: 'task' } }
+			})
 		);
 		expect(d.icon).toBe('created');
 		expect(d.verb).toBe('created this task');
@@ -22,7 +25,10 @@ describe('describeActivity', () => {
 
 	it('item.deleted → "deleted this {kind}"', () => {
 		const d = describeActivity(
-			makeActivity({ action: 'item.deleted', payload: { item: { seq: 1, title: 'X', kind: 'brainstorm' } } })
+			makeActivity({
+				action: 'item.deleted',
+				payload: { item: { seq: 1, title: 'X', kind: 'brainstorm' } }
+			})
 		);
 		expect(d.verb).toBe('deleted this brainstorm');
 		expect(d.icon).toBe('deleted');
@@ -49,7 +55,10 @@ describe('describeActivity', () => {
 		const d = describeActivity(
 			makeActivity({
 				action: 'item.updated',
-				payload: { item: { seq: 1, title: long, kind: 'task' }, diff: { title: { old: 'old', new: long } } }
+				payload: {
+					item: { seq: 1, title: long, kind: 'task' },
+					diff: { title: { old: 'old', new: long } }
+				}
 			})
 		);
 		expect(d.verb).toBe('renamed');
@@ -61,7 +70,10 @@ describe('describeActivity', () => {
 		const d = describeActivity(
 			makeActivity({
 				action: 'item.updated',
-				payload: { item: { seq: 1, title: 'X', kind: 'task' }, diff: { body: { diff: '@@ -1 +1 @@' } } }
+				payload: {
+					item: { seq: 1, title: 'X', kind: 'task' },
+					diff: { body: { diff: '@@ -1 +1 @@' } }
+				}
 			})
 		);
 		expect(d.verb).toBe('edited the notes');
@@ -72,7 +84,10 @@ describe('describeActivity', () => {
 		const d = describeActivity(
 			makeActivity({
 				action: 'item.updated',
-				payload: { item: { seq: 1, title: 'X', kind: 'task' }, diff: { position: { old: 1, new: 9 } } }
+				payload: {
+					item: { seq: 1, title: 'X', kind: 'task' },
+					diff: { position: { old: 1, new: 9 } }
+				}
 			})
 		);
 		expect(d.isReorder).toBe(true);
@@ -111,29 +126,42 @@ describe('describeActivity', () => {
 		expect(d.verb).toBe('edited this task');
 		expect(d.subLines).toHaveLength(3);
 		expect(d.subLines).toEqual(
-			expect.arrayContaining([
-				'title: "Old" → "New"',
-				'status: Open → Done',
-				'notes updated'
-			])
+			expect.arrayContaining(['title: "Old" → "New"', 'status: Open → Done', 'notes updated'])
 		);
 	});
 
 	it('tag add/remove', () => {
 		expect(
-			describeActivity(makeActivity({ action: 'item.tag_added', payload: { tag: { slug: 'urgent', name: 'urgent' } } })).verb
+			describeActivity(
+				makeActivity({
+					action: 'item.tag_added',
+					payload: { tag: { slug: 'urgent', name: 'urgent' } }
+				})
+			).verb
 		).toBe('tagged urgent');
 		expect(
-			describeActivity(makeActivity({ action: 'item.tag_removed', payload: { tag: { slug: 'urgent', name: 'urgent' } } })).verb
+			describeActivity(
+				makeActivity({
+					action: 'item.tag_removed',
+					payload: { tag: { slug: 'urgent', name: 'urgent' } }
+				})
+			).verb
 		).toBe('untagged urgent');
 	});
 
 	it('attachment add/remove', () => {
 		expect(
-			describeActivity(makeActivity({ action: 'attachment.added', payload: { attachment: { filename: 'a.png' } } })).verb
+			describeActivity(
+				makeActivity({ action: 'attachment.added', payload: { attachment: { filename: 'a.png' } } })
+			).verb
 		).toBe('attached a.png');
 		expect(
-			describeActivity(makeActivity({ action: 'attachment.removed', payload: { attachment: { filename: 'a.png' } } })).verb
+			describeActivity(
+				makeActivity({
+					action: 'attachment.removed',
+					payload: { attachment: { filename: 'a.png' } }
+				})
+			).verb
 		).toBe('removed a.png');
 	});
 
@@ -143,7 +171,10 @@ describe('describeActivity', () => {
 		);
 		expect(
 			describeActivity(
-				makeActivity({ action: 'project.updated', payload: { diff: { name: { old: 'A', new: 'B' } } } })
+				makeActivity({
+					action: 'project.updated',
+					payload: { diff: { name: { old: 'A', new: 'B' } } }
+				})
 			).verb
 		).toBe('renamed the project');
 		const multi = describeActivity(
@@ -158,7 +189,10 @@ describe('describeActivity', () => {
 
 	it('project slug change → "changed the project URL"', () => {
 		const d = describeActivity(
-			makeActivity({ action: 'project.updated', payload: { diff: { slug: { old: 'old-slug', new: 'new-slug' } } } })
+			makeActivity({
+				action: 'project.updated',
+				payload: { diff: { slug: { old: 'old-slug', new: 'new-slug' } } }
+			})
 		);
 		expect(d.verb).toBe('changed the project URL');
 		expect(d.detail).toContain('old-slug');
@@ -167,18 +201,31 @@ describe('describeActivity', () => {
 
 	it('project colour/icon change → "restyled the project"', () => {
 		expect(
-			describeActivity(makeActivity({ action: 'project.updated', payload: { diff: { colour: { old: 'plum', new: 'gold' } } } })).verb
+			describeActivity(
+				makeActivity({
+					action: 'project.updated',
+					payload: { diff: { colour: { old: 'plum', new: 'gold' } } }
+				})
+			).verb
 		).toBe('restyled the project');
 		expect(
-			describeActivity(makeActivity({ action: 'project.updated', payload: { diff: { icon: { old: 'a', new: 'b' } } } })).verb
+			describeActivity(
+				makeActivity({
+					action: 'project.updated',
+					payload: { diff: { icon: { old: 'a', new: 'b' } } }
+				})
+			).verb
 		).toBe('restyled the project');
 	});
 
 	it('note → text as the verb, falling back to "added a note"', () => {
 		expect(
-			describeActivity(makeActivity({ action: 'note', payload: { text: 'Reviewed the design' } })).verb
+			describeActivity(makeActivity({ action: 'note', payload: { text: 'Reviewed the design' } }))
+				.verb
 		).toBe('Reviewed the design');
-		expect(describeActivity(makeActivity({ action: 'note', payload: {} })).verb).toBe('added a note');
+		expect(describeActivity(makeActivity({ action: 'note', payload: {} })).verb).toBe(
+			'added a note'
+		);
 	});
 
 	it('attachment verbs fall back when filename is absent', () => {
@@ -220,11 +267,19 @@ describe('describeActivity', () => {
 describe('isReorderActivity', () => {
 	it('true only for position-only item.updated', () => {
 		expect(
-			isReorderActivity(makeActivity({ action: 'item.updated', payload: { diff: { position: { old: 1, new: 2 } } } }))
+			isReorderActivity(
+				makeActivity({
+					action: 'item.updated',
+					payload: { diff: { position: { old: 1, new: 2 } } }
+				})
+			)
 		).toBe(true);
 		expect(
 			isReorderActivity(
-				makeActivity({ action: 'item.updated', payload: { diff: { position: { old: 1, new: 2 }, title: { old: 'a', new: 'b' } } } })
+				makeActivity({
+					action: 'item.updated',
+					payload: { diff: { position: { old: 1, new: 2 }, title: { old: 'a', new: 'b' } } }
+				})
 			)
 		).toBe(false);
 		expect(isReorderActivity(makeActivity({ action: 'item.created' }))).toBe(false);
@@ -266,16 +321,16 @@ describe('collapseBursts', () => {
 	});
 
 	it('a gap larger than the window breaks the burst', () => {
-		const rows = collapseBursts([
-			at('2026-05-17T13:00:00.000Z'),
-			at('2026-05-17T12:00:00.000Z')
-		]);
+		const rows = collapseBursts([at('2026-05-17T13:00:00.000Z'), at('2026-05-17T12:00:00.000Z')]);
 		expect(rows).toHaveLength(2);
 	});
 });
 
 describe('matchesFilter', () => {
-	const reorder = makeActivity({ action: 'item.updated', payload: { diff: { position: { old: 1, new: 2 } } } });
+	const reorder = makeActivity({
+		action: 'item.updated',
+		payload: { diff: { position: { old: 1, new: 2 } } }
+	});
 
 	it('filters by action set', () => {
 		const a = makeActivity({ action: 'item.created' });

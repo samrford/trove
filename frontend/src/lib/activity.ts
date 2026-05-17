@@ -220,19 +220,49 @@ export function describeActivity(a: Activity): ActivityDescriptor {
 
 	switch (a.action) {
 		case 'item.created':
-			return { icon: 'created', verb: `created this ${item?.kind ?? 'item'}`, ...ref, isReorder: false };
+			return {
+				icon: 'created',
+				verb: `created this ${item?.kind ?? 'item'}`,
+				...ref,
+				isReorder: false
+			};
 		case 'item.deleted':
-			return { icon: 'deleted', verb: `deleted this ${item?.kind ?? 'item'}`, ...ref, isReorder: false };
+			return {
+				icon: 'deleted',
+				verb: `deleted this ${item?.kind ?? 'item'}`,
+				...ref,
+				isReorder: false
+			};
 		case 'item.updated':
 			return { ...describeItemUpdated(a, item ?? { seq: 0, title: '', kind: 'task' }), ...ref };
 		case 'item.tag_added':
-			return { icon: 'tag', verb: `tagged ${a.payload.tag?.name ?? ''}`.trim(), ...ref, isReorder: false };
+			return {
+				icon: 'tag',
+				verb: `tagged ${a.payload.tag?.name ?? ''}`.trim(),
+				...ref,
+				isReorder: false
+			};
 		case 'item.tag_removed':
-			return { icon: 'untag', verb: `untagged ${a.payload.tag?.name ?? ''}`.trim(), ...ref, isReorder: false };
+			return {
+				icon: 'untag',
+				verb: `untagged ${a.payload.tag?.name ?? ''}`.trim(),
+				...ref,
+				isReorder: false
+			};
 		case 'attachment.added':
-			return { icon: 'attachment', verb: `attached ${a.payload.attachment?.filename ?? 'a file'}`, ...ref, isReorder: false };
+			return {
+				icon: 'attachment',
+				verb: `attached ${a.payload.attachment?.filename ?? 'a file'}`,
+				...ref,
+				isReorder: false
+			};
 		case 'attachment.removed':
-			return { icon: 'attachment', verb: `removed ${a.payload.attachment?.filename ?? 'an attachment'}`, ...ref, isReorder: false };
+			return {
+				icon: 'attachment',
+				verb: `removed ${a.payload.attachment?.filename ?? 'an attachment'}`,
+				...ref,
+				isReorder: false
+			};
 		case 'project.created':
 			return { icon: 'project', verb: 'created the project', isReorder: false };
 		case 'project.updated':
