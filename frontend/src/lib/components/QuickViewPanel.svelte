@@ -566,7 +566,7 @@
 		<ConfirmDialog
 			bind:open={deleteConfirmOpen}
 			title={`Delete item #${item.sequence}?`}
-			message="This is permanent. The item and its future attachments / activity will be removed."
+			message="This is permanent. The item and its attachments will be deleted. Its activity history is kept."
 			confirmLabel="Delete item"
 			cancelLabel="Keep it"
 			destructive={true}

@@ -8,7 +8,7 @@
 	import { fly } from 'svelte/transition';
 	import { X, ChevronDown, ChevronRight, ArrowRight } from '@lucide/svelte';
 
-	// Slide-in browse surface (mirrors QuickViewPanel's slide-in). ~20 recent, burst-collapsed. 
+	// Slide-in browse surface (mirrors QuickViewPanel's slide-in). ~20 recent, burst-collapsed.
 
 	type Props = {
 		open?: boolean;
