@@ -18,7 +18,7 @@ import (
 // --- Event payload helpers ---
 
 func itemSnapshot(i *data.Item) map[string]any {
-	return map[string]any{"seq": i.Sequence, "title": i.Title, "kind": i.Kind}
+	return map[string]any{"id": i.ID, "seq": i.Sequence, "title": i.Title, "kind": i.Kind}
 }
 
 func projectSnapshot(p *data.Project) map[string]any {

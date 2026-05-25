@@ -21,10 +21,11 @@ import (
 )
 
 var (
-	once    sync.Once
-	shared  *sql.DB
-	ctr     *postgres.PostgresContainer
-	initErr error
+	once      sync.Once
+	shared    *sql.DB
+	sharedDSN string
+	ctr       *postgres.PostgresContainer
+	initErr   error
 )
 
 func init() {
@@ -88,6 +89,16 @@ func OpenTestDB(t *testing.T) *sql.DB {
 	return shared
 }
 
+// DSN returns the shared container's connection string (URL form, sslmode
+// disabled). For tests needing a raw connection outside the pool — e.g. a
+// pq.Listener for LISTEN/NOTIFY. Ensures the container is up first (skips the
+// test if Docker is unavailable, same as OpenTestDB).
+func DSN(t *testing.T) string {
+	t.Helper()
+	OpenTestDB(t)
+	return sharedDSN
+}
+
 func startContainer() (*sql.DB, *postgres.PostgresContainer, error) {
 	ctx := context.Background()
 	c, err := postgres.Run(ctx,
@@ -103,6 +114,7 @@ func startContainer() (*sql.DB, *postgres.PostgresContainer, error) {
 	if err != nil {
 		return nil, c, err
 	}
+	sharedDSN = dsn
 	// data.InitDB connects (with its own ping-retry loop, ample for container
 	// warm-up) and runs the embedded goose migrations — the exact prod path,
 	// so tests exercise the real schema.

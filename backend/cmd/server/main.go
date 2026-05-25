@@ -7,13 +7,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	photopicker "github.com/samrford/google-photos-picker"
 	ppg "github.com/samrford/google-photos-picker/postgres"
 
 	"trove/backend/internal/data"
 	"trove/backend/internal/data/storage"
+	"trove/backend/internal/events"
 	"trove/backend/internal/handlers"
 	"trove/backend/internal/jobs"
 )
@@ -46,6 +50,13 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
+
+	// Root context cancelled on SIGINT/SIGTERM (Fly sends SIGTERM on every
+	// deploy). Drives graceful shutdown and every background goroutine — SSE
+	// streams, the orphan sweep, the photopicker worker — so a deploy drains
+	// cleanly instead of hard-dropping live connections.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	if supabaseURL == "" {
@@ -90,6 +101,18 @@ func main() {
 	attachmentsHandler := handlers.NewAttachmentsHandler(db, store)
 	activityHandler := handlers.NewActivityHandler(db)
 
+	// Real-time fan-out. The hub owns one pq.Listener on the activity-INSERT
+	// NOTIFY channel; the endpoint streams it per-user over SSE. hubDone lets
+	// main wait for the hub (and its worker pool) to drain after Shutdown,
+	// before db.Close runs.
+	hub := events.NewHub(db, dbURL)
+	hubDone := make(chan struct{})
+	go func() {
+		defer close(hubDone)
+		hub.Run(ctx)
+	}()
+	eventsHandler := handlers.NewEventsHandler(db, hub)
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v1/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -119,10 +142,8 @@ func main() {
 		mux.HandleFunc("/v1/projects/{slug}/items/{seq}/attachments/{id}", authed(attachmentsHandler.HandleByID))
 
 		// Daily orphan sweep — Postgres advisory lock makes this safe under
-		// multi-instance deploys.
-		sweepCtx, cancelSweep := context.WithCancel(context.Background())
-		defer cancelSweep()
-		go jobs.RunOrphanSweep(sweepCtx, db, store)
+		// multi-instance deploys. Stops with the root context on shutdown.
+		go jobs.RunOrphanSweep(ctx, db, store)
 	}
 
 	// Google Photos picker — optional, only activates if all four env vars
@@ -177,9 +198,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("photopicker worker: %v", err)
 		}
-		workerCtx, cancelWorker := context.WithCancel(context.Background())
-		defer cancelWorker()
-		go worker.Run(workerCtx)
+		go worker.Run(ctx)
 
 		// Picker-owned routes: OAuth dance + session/import polling.
 		mux.HandleFunc("/v1/google-photos/connect", authed(pp.Connect()))
@@ -219,7 +238,11 @@ func main() {
 		})
 	}))
 
-	// TODO: register remaining handlers — groups, events (SSE).
+	// One long-lived SSE stream per user (header-auth via the existing
+	// AuthMiddleware — fetch-event-source sends the Bearer token).
+	mux.HandleFunc("/v1/events", authed(eventsHandler.HandleStream))
+
+	// TODO: register remaining handlers — groups.
 
 	mux.HandleFunc("/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -230,6 +253,26 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
+	// Timeouts are deliberately left at zero: a non-zero WriteTimeout would
+	// kill long-lived SSE streams mid-flight. Idle/abandoned connections are
+	// instead bounded by the per-stream heartbeat + client reconnect.
+	srv := &http.Server{Addr: ":" + port, Handler: mux}
+
+	go func() {
+		<-ctx.Done()
+		log.Println("Shutdown signal received — draining")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("graceful shutdown: %v", err)
+		}
+	}()
+
 	log.Printf("Trove backend starting on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("server error: %v", err)
+	}
+	<-hubDone
+	log.Println("Server stopped")
 }

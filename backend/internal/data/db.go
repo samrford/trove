@@ -43,6 +43,14 @@ func InitDB(connURL string) (*sql.DB, error) {
 
 	log.Println("Successfully connected to the PostgreSQL database")
 
+	// Explicit pool bounds. SSE handlers can hold a pool conn during reconnect
+	// catch-up; unbounded defaults would let many concurrent streams exhaust
+	// Postgres. (The pq.Listener uses its own dedicated conn outside this pool.)
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
 	goose.SetBaseFS(embedMigrations)
 
 	if err := goose.SetDialect("postgres"); err != nil {

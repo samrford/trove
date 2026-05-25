@@ -173,3 +173,47 @@ func ListActivity(ctx context.Context, db *sql.DB, f ActivityFilter) ([]Activity
 	}
 	return out, rows.Err()
 }
+
+// GetActivityByID fetches one event.
+func GetActivityByID(ctx context.Context, db *sql.DB, id string) (*Activity, error) {
+	row := db.QueryRowContext(ctx,
+		`SELECT `+activityColumns+` FROM activity WHERE id = $1`, id)
+	return scanActivity(row)
+}
+
+// ActivitySince returns events strictly newer than the cursor (exclusive),
+// *oldest-first*, across the given projects, bounded by the clamped limit.
+// A zero cursor(empty ID) means "from the beginning", a zero limit means
+// "the default page size".
+func ActivitySince(ctx context.Context, db *sql.DB, projectIDs []string, after ActivityCursor, limit int) ([]Activity, error) {
+	out := []Activity{}
+	if len(projectIDs) == 0 {
+		return out, nil
+	}
+	clauses := []string{"project_id = ANY($1)"}
+	args := []any{pq.Array(projectIDs)}
+	if after.ID != "" {
+		args = append(args, after.CreatedAt, after.ID)
+		clauses = append(clauses, fmt.Sprintf("(created_at, id) > ($%d, $%d)", len(args)-1, len(args)))
+	}
+	args = append(args, ClampActivityLimit(limit))
+
+	query := `SELECT ` + activityColumns + ` FROM activity WHERE ` +
+		strings.Join(clauses, " AND ") +
+		fmt.Sprintf(` ORDER BY created_at ASC, id ASC LIMIT $%d`, len(args))
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		a, err := scanActivity(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
+}
