@@ -104,8 +104,10 @@ func main() {
 	// Real-time fan-out. The hub owns one pq.Listener on the activity-INSERT
 	// NOTIFY channel; the endpoint streams it per-user over SSE. hubDone lets
 	// main wait for the hub (and its worker pool) to drain after Shutdown,
-	// before db.Close runs.
-	hub := events.NewHub(db, dbURL)
+	// before db.Close runs. The hydrator wraps items the same way the REST
+	// item endpoints do (tags + signed attachments) so SSE and REST payloads
+	// satisfy the front-end's Item type identically.
+	hub := events.NewHub(db, dbURL, itemsHandler.HydrateItemForSSE)
 	hubDone := make(chan struct{})
 	go func() {
 		defer close(hubDone)

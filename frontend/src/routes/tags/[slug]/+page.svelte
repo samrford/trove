@@ -10,6 +10,8 @@
 	} from '$lib/api/tags';
 	import type { Item } from '$lib/api/items';
 	import { errMsg } from '$lib/api';
+	import { realtime } from '$lib/realtime.svelte';
+	import { applyItemEvent, isStale } from '$lib/realtime';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
@@ -42,6 +44,52 @@
 	let saveError = $state<string | null>(null);
 	let confirmingDelete = $state(false);
 	let deleting = $state(false);
+	let itemsLastSeen = $state<Record<string, string>>({});
+
+	// Live updates for the items-using-this-tag list. The scope predicate is
+	// "currently has this tag" — when a remote edit removes the tag, the item
+	// drops out; when it gains the tag, applyItemEvent appends it so the row
+	// appears immediately (without a separate listItemsForTag round-trip).
+	// Listeners bind once on mount and read `tag` / `items` lazily.
+	$effect(() => {
+		const unsubChanged = realtime.on('item.changed', (ev) => {
+			if (!tag) return;
+			const tagSlug = tag.slug;
+			const hasOurTag = ev.item.tags.some((t) => t.slug === tagSlug);
+			if (!hasOurTag) {
+				// Item lost our tag — drop from the list if it was here. The
+				// staleness check matches the reducers' out-of-order safety so
+				// an older "no longer has this tag" event can't evict an item
+				// that a newer event already reaffirmed.
+				if (isStale(itemsLastSeen[ev.item.id], ev.cursor)) return;
+				if (items.some((i) => i.id === ev.item.id)) {
+					items = items.filter((i) => i.id !== ev.item.id);
+					itemsLastSeen = { ...itemsLastSeen, [ev.item.id]: ev.cursor };
+				}
+				return;
+			}
+			const result = applyItemEvent({ items, lastSeen: itemsLastSeen }, ev, null);
+			items = result.items;
+			itemsLastSeen = result.lastSeen;
+		});
+		const unsubDeleted = realtime.on('item.deleted', (ev) => {
+			const result = applyItemEvent({ items, lastSeen: itemsLastSeen }, ev, null);
+			items = result.items;
+			itemsLastSeen = result.lastSeen;
+		});
+		const unsubResync = realtime.on('resync', () => {
+			if (!tag) return;
+			listItemsForTag(tag.slug)
+				.then((its) => (items = its))
+				.catch((e) => console.error('[realtime] resync listItemsForTag failed', e));
+			itemsLastSeen = {};
+		});
+		return () => {
+			unsubChanged();
+			unsubDeleted();
+			unsubResync();
+		};
+	});
 
 	$effect(() => {
 		if (!auth.user || !slugFromUrl) return;

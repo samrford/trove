@@ -15,6 +15,7 @@
 	import { listTags, type Tag, type TagWithCount } from '$lib/api/tags';
 	import type { Project } from '$lib/api/projects';
 	import { errMsg } from '$lib/api';
+	import type { EditorAffordance } from '$lib/realtime';
 	import { animations } from '$lib/animations.svelte';
 	import { appConfig } from '$lib/config.svelte';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
@@ -42,8 +43,16 @@
 
 	type Props = {
 		open?: boolean;
+		// Bindable so the parent's SSE listener knows whether to silently sync
+		// the item prop (clean) or raise an affordance (dirty editor).
+		editing?: boolean;
 		item: Item | null;
 		project: Project | null;
+		// Parent-managed: set by the parent's realtime listener when a remote
+		// change targets this item while editing, or when it's deleted.
+		affordance?: EditorAffordance;
+		// Parent-provided refetch — clears the affordance + re-syncs the prop.
+		onReload?: () => void | Promise<void>;
 		onUpdated?: (item: Item) => void;
 		onDeleted?: (item: Item) => void;
 		onPrev?: () => void;
@@ -52,8 +61,11 @@
 
 	let {
 		open = $bindable(false),
+		editing = $bindable(false),
 		item,
 		project,
+		affordance = 'none',
+		onReload,
 		onUpdated,
 		onDeleted,
 		onPrev,
@@ -62,8 +74,6 @@
 
 	let actionError = $state<string | null>(null);
 	let deleteConfirmOpen = $state(false);
-
-	let editing = $state(false);
 	let saving = $state(false);
 	let editTitle = $state('');
 	let editBody = $state('');
@@ -151,6 +161,13 @@
 	function cancelEdit() {
 		editing = false;
 		actionError = null;
+	}
+
+	// Reload affordance handler: parent refetches the item; we drop edit
+	// mode so the freshly synced prop is what the user sees.
+	async function handleReload() {
+		await onReload?.();
+		cancelEdit();
 	}
 
 	async function saveEdit() {
@@ -359,6 +376,41 @@
 				</button>
 			</div>
 		</header>
+
+		<!-- Editor-isolation affordance — non-destructive banner so a remote
+			 change to this item doesn't destroy an open editor. -->
+		{#if affordance === 'updated-elsewhere'}
+			<div
+				class="flex items-center gap-2 border-b border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent"
+				role="status"
+			>
+				<span class="flex-1">This item was changed elsewhere.</span>
+				<button
+					type="button"
+					onclick={handleReload}
+					class="rounded-md border border-accent/40 px-2 py-0.5 font-medium text-accent transition hover:bg-accent/20"
+				>
+					Reload
+				</button>
+			</div>
+		{:else if affordance === 'deleted-elsewhere'}
+			<div
+				class="flex items-center gap-2 border-b border-danger/40 bg-danger/10 px-4 py-2 text-xs text-danger"
+				role="status"
+			>
+				<span class="flex-1">This item was deleted elsewhere.</span>
+				<button
+					type="button"
+					onclick={() => {
+						if (editing) cancelEdit();
+						open = false;
+					}}
+					class="rounded-md border border-danger/40 px-2 py-0.5 font-medium text-danger transition hover:bg-danger/20"
+				>
+					Close
+				</button>
+			</div>
+		{/if}
 
 		<!-- Scrollable content -->
 		{#if editing}

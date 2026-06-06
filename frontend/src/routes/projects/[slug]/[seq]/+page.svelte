@@ -11,6 +11,8 @@
 	} from '$lib/api/items';
 	import { ApiError, errMsg } from '$lib/api';
 	import { appConfig } from '$lib/config.svelte';
+	import { realtime } from '$lib/realtime.svelte';
+	import { applyEditorEvent, type EditorAffordance } from '$lib/realtime';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -36,6 +38,47 @@
 	let deleteConfirmOpen = $state(false);
 	let gphotosOpen = $state(false);
 	const attachmentsEnabled = $derived(appConfig.config?.attachmentsEnabled ?? false);
+
+	// Live state — last applied SSE cursor for this item and any pending
+	// affordance ("updated/deleted elsewhere"). Editor isolation: applyEditorEvent
+	// won't destroy the open edit form while `editing` is true.
+	let lastSeen = $state('');
+	let affordance = $state<EditorAffordance>('none');
+
+	async function handleReload() {
+		await refreshItemFromServer();
+		affordance = 'none';
+		lastSeen = '';
+		if (editing) cancelEdit();
+	}
+
+	// Listeners bind once on mount and read `item` / `lastSeen` / `editing`
+	// lazily inside callbacks — keeping the effect body free of reactive reads
+	// prevents the listeners from being torn down + re-bound every time an
+	// event writes back to `item` or `lastSeen`.
+	$effect(() => {
+		const unsubChanged = realtime.on('item.changed', (ev) => {
+			if (!item || ev.item.id !== item.id) return;
+			const r = applyEditorEvent(item, lastSeen, ev, editing, realtime.isOwnEvent(ev.cursor));
+			item = r.item;
+			lastSeen = r.lastSeen;
+			if (r.affordance !== 'none') affordance = r.affordance;
+		});
+		const unsubDeleted = realtime.on('item.deleted', (ev) => {
+			if (!item || ev.payload.id !== item.id) return;
+			const r = applyEditorEvent(item, lastSeen, ev, editing, realtime.isOwnEvent(ev.cursor));
+			lastSeen = r.lastSeen;
+			if (r.affordance !== 'none') affordance = r.affordance;
+		});
+		const unsubResync = realtime.on('resync', () => {
+			refreshItemFromServer();
+		});
+		return () => {
+			unsubChanged();
+			unsubDeleted();
+			unsubResync();
+		};
+	});
 
 	async function refreshItemFromServer() {
 		if (!project || !item) return;
@@ -141,6 +184,35 @@
 				{project ? project.name : 'Back'}
 			</a>
 		</div>
+
+		{#if affordance === 'updated-elsewhere'}
+			<div
+				class="mb-5 flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-accent"
+				role="status"
+			>
+				<span class="flex-1">This item was changed elsewhere.</span>
+				<button
+					type="button"
+					onclick={handleReload}
+					class="rounded-md border border-accent/40 px-2.5 py-1 text-xs font-medium text-accent transition hover:bg-accent/20"
+				>
+					Reload
+				</button>
+			</div>
+		{:else if affordance === 'deleted-elsewhere'}
+			<div
+				class="mb-5 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+				role="status"
+			>
+				<span class="flex-1">This item was deleted elsewhere.</span>
+				<a
+					href={project ? `/projects/${project.slug}` : '/'}
+					class="rounded-md border border-danger/40 px-2.5 py-1 text-xs font-medium text-danger transition hover:bg-danger/20"
+				>
+					Go back
+				</a>
+			</div>
+		{/if}
 
 		{#if notFound}
 			<div class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">

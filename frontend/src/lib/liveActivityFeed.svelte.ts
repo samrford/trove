@@ -114,8 +114,6 @@ export function createLiveFeed(config: LiveFeedConfig): LiveFeed {
 // project or item, and drop reorder-only updates (those surfaces never show
 // reorders by policy, and ingesting them would let a noisy reorder stream
 // push real events out of applyActivityFeed's 200 cap).
-export function keepRealFor(
-	predicate: (a: Activity) => boolean
-): (a: Activity) => boolean {
+export function keepRealFor(predicate: (a: Activity) => boolean): (a: Activity) => boolean {
 	return (a) => predicate(a) && matchesFilter(a, { includeReorders: false });
 }

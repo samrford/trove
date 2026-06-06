@@ -136,7 +136,10 @@ function reduceItemDeleted(
 	};
 }
 
-function isStale(prevCursor: string | undefined, incomingCursor: string): boolean {
+// Exported for surfaces that branch outside the reducers (e.g. the tags page's
+// "lost the tag" drop path needs the same out-of-order safety the reducers
+// apply internally).
+export function isStale(prevCursor: string | undefined, incomingCursor: string): boolean {
 	const incoming = parseCursor(incomingCursor);
 	if (!incoming) return false; // can't tell — let it through
 	const prev = parseCursor(prevCursor ?? '');
@@ -162,6 +165,59 @@ export function applyProjectEvent(
 	if (event.project.id !== state.project.id) return state;
 	if (isStale(state.lastSeen, event.cursor)) return state;
 	return { project: event.project, lastSeen: event.cursor };
+}
+
+// --- Single-item editor reducer ---
+//
+// For QuickView / item detail / anywhere showing one live item: applies the
+// same out-of-order + editor-isolation policy as applyItemEvent, but returns
+// a discriminated `affordance` so the surface can render the right
+// "updated/deleted elsewhere" banner. `item.deleted` always surfaces
+// `deleted-elsewhere` for cross-actor deletes — we don't quietly yank the
+// item out from under a reader (clean or dirty), per the locked policy.
+//
+// `isOwn` short-circuits both: when the event is the user's own echo
+// (detected via activity.added's actor_id, exposed by realtime.svelte's
+// isOwnEvent), the change applies silently and no banner is raised. This is
+// the "actor's own echoed event is an idempotent no-op" rule from the spec.
+
+export type EditorAffordance = 'none' | 'updated-elsewhere' | 'deleted-elsewhere';
+
+export type EditorReducerResult = {
+	item: Item;
+	lastSeen: string;
+	affordance: EditorAffordance;
+};
+
+export function applyEditorEvent(
+	item: Item,
+	lastSeen: string,
+	event: RealtimeEvent,
+	dirty: boolean,
+	isOwn = false
+): EditorReducerResult {
+	if (event.type === 'item.changed') {
+		if (event.item.id !== item.id) return { item, lastSeen, affordance: 'none' };
+		if (isStale(lastSeen, event.cursor)) return { item, lastSeen, affordance: 'none' };
+		if (dirty && !isOwn) {
+			// Don't destroy the open editor; affordance prompts a reload.
+			return { item, lastSeen, affordance: 'updated-elsewhere' };
+		}
+		// Clean editor, or our own echo — apply the server-authoritative state.
+		return { item: event.item, lastSeen: event.cursor, affordance: 'none' };
+	}
+	if (event.type === 'item.deleted') {
+		if (event.payload.id !== item.id) return { item, lastSeen, affordance: 'none' };
+		if (isStale(lastSeen, event.cursor)) return { item, lastSeen, affordance: 'none' };
+		if (isOwn) {
+			// User deleted their own item; the local mutation handler has
+			// already navigated / closed the panel. Just advance the cursor.
+			return { item, lastSeen: event.cursor, affordance: 'none' };
+		}
+		// Keep the item in view (reader/editor stays valid); surface the notice.
+		return { item, lastSeen: event.cursor, affordance: 'deleted-elsewhere' };
+	}
+	return { item, lastSeen, affordance: 'none' };
 }
 
 // --- Activity feed reducer ---

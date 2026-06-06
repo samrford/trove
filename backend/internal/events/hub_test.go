@@ -114,7 +114,7 @@ func TestHubFanOutProjectFilter(t *testing.T) {
 	item := datatest.SeedItem(t, db, p1.ID, user)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	hub := events.NewHub(db, dsn)
+	hub := events.NewHub(db, dsn, nil)
 	go hub.Run(ctx)
 	t.Cleanup(cancel)
 	time.Sleep(300 * time.Millisecond) // let the hub's LISTEN establish
@@ -173,7 +173,7 @@ func TestHubDropsSlowClient(t *testing.T) {
 	p := datatest.SeedProject(t, db, user)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	hub := events.NewHub(db, dsn)
+	hub := events.NewHub(db, dsn, nil)
 	go hub.Run(ctx)
 	t.Cleanup(cancel)
 	time.Sleep(300 * time.Millisecond) // let the hub's LISTEN establish
@@ -204,7 +204,7 @@ func TestHubProjectChanged(t *testing.T) {
 	p := datatest.SeedProject(t, db, user)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	hub := events.NewHub(db, dsn)
+	hub := events.NewHub(db, dsn, nil)
 	go hub.Run(ctx)
 	t.Cleanup(cancel)
 	time.Sleep(300 * time.Millisecond)

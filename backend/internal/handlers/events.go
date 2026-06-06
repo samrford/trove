@@ -103,7 +103,7 @@ func (h *EventsHandler) HandleStream(w http.ResponseWriter, r *http.Request) {
 			writeEvent(w, rc, events.Message{Event: events.EventResync})
 		} else {
 			for i := range missed {
-				msgs, err := events.Build(r.Context(), h.db, &missed[i])
+				msgs, err := h.hub.Build(r.Context(), &missed[i])
 				if err != nil {
 					log.Printf("sse catch-up build: %v", err)
 					continue

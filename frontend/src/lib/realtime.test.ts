@@ -7,6 +7,7 @@ import {
 	parseCursor,
 	isNewer,
 	applyItemEvent,
+	applyEditorEvent,
 	applyProjectEvent,
 	applyActivityFeed,
 	type Cursor,
@@ -264,6 +265,163 @@ describe('applyItemEvent / unrelated event types', () => {
 			expect(r.items).toEqual([a]);
 			expect(r.lastSeen).toEqual({ a: cur(1) });
 			expect(r.editorStale).toBe(false);
+		}
+	});
+});
+
+// --- applyEditorEvent (single-item editor reducer) ---
+
+describe('applyEditorEvent', () => {
+	const it1 = makeItem({ id: 'x', title: 'baseline' });
+
+	it('clean editor + item.changed → replaces item, advances cursor, no affordance', () => {
+		const next = makeItem({ id: 'x', title: 'fresh' });
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{ type: 'item.changed', item: next, cursor: cur(1) },
+			false
+		);
+		expect(r.item.title).toBe('fresh');
+		expect(r.lastSeen).toBe(cur(1));
+		expect(r.affordance).toBe('none');
+	});
+
+	it('dirty editor + item.changed → keeps item + lastSeen, surfaces updated-elsewhere', () => {
+		const next = makeItem({ id: 'x', title: 'remote' });
+		const r = applyEditorEvent(it1, '', { type: 'item.changed', item: next, cursor: cur(1) }, true);
+		expect(r.item.title).toBe('baseline');
+		expect(r.lastSeen).toBe(''); // not advanced — reload will resync
+		expect(r.affordance).toBe('updated-elsewhere');
+	});
+
+	it('item.changed for a different id → no-op', () => {
+		const other = makeItem({ id: 'OTHER', title: 'someone else' });
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{ type: 'item.changed', item: other, cursor: cur(1) },
+			false
+		);
+		expect(r.item).toBe(it1);
+		expect(r.affordance).toBe('none');
+	});
+
+	it('stale item.changed → no-op (no affordance, cursor stays)', () => {
+		const next = makeItem({ id: 'x', title: 'stale' });
+		const r = applyEditorEvent(
+			it1,
+			cur(10),
+			{ type: 'item.changed', item: next, cursor: cur(5) },
+			false
+		);
+		expect(r.item.title).toBe('baseline');
+		expect(r.lastSeen).toBe(cur(10));
+		expect(r.affordance).toBe('none');
+	});
+
+	it('item.deleted (clean) → keeps item in view, surfaces deleted-elsewhere', () => {
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{
+				type: 'item.deleted',
+				payload: { id: 'x', seq: 1, project_id: 'p-1' },
+				cursor: cur(1)
+			},
+			false
+		);
+		expect(r.item).toBe(it1); // not removed
+		expect(r.lastSeen).toBe(cur(1));
+		expect(r.affordance).toBe('deleted-elsewhere');
+	});
+
+	it('item.deleted (dirty) → keeps item, surfaces deleted-elsewhere', () => {
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{
+				type: 'item.deleted',
+				payload: { id: 'x', seq: 1, project_id: 'p-1' },
+				cursor: cur(1)
+			},
+			true
+		);
+		expect(r.item).toBe(it1);
+		expect(r.affordance).toBe('deleted-elsewhere');
+	});
+
+	it('item.deleted for a different id → no-op', () => {
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{
+				type: 'item.deleted',
+				payload: { id: 'OTHER', seq: 2, project_id: 'p-1' },
+				cursor: cur(1)
+			},
+			false
+		);
+		expect(r.item).toBe(it1);
+		expect(r.affordance).toBe('none');
+	});
+
+	it('stale item.deleted → no-op', () => {
+		const r = applyEditorEvent(
+			it1,
+			cur(10),
+			{
+				type: 'item.deleted',
+				payload: { id: 'x', seq: 1, project_id: 'p-1' },
+				cursor: cur(5)
+			},
+			false
+		);
+		expect(r.affordance).toBe('none');
+		expect(r.lastSeen).toBe(cur(10));
+	});
+
+	it('own item.changed while dirty → silent sync, no affordance ("actor\'s own echo is a no-op")', () => {
+		const next = makeItem({ id: 'x', title: 'my-own-tag-add' });
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{ type: 'item.changed', item: next, cursor: cur(1) },
+			true,
+			true
+		);
+		expect(r.item.title).toBe('my-own-tag-add'); // applied
+		expect(r.lastSeen).toBe(cur(1)); // advanced
+		expect(r.affordance).toBe('none'); // no banner on your own action
+	});
+
+	it('own item.deleted → no affordance (the local handler closed the panel already)', () => {
+		const r = applyEditorEvent(
+			it1,
+			'',
+			{
+				type: 'item.deleted',
+				payload: { id: 'x', seq: 1, project_id: 'p-1' },
+				cursor: cur(1)
+			},
+			false,
+			true
+		);
+		expect(r.affordance).toBe('none');
+		expect(r.lastSeen).toBe(cur(1));
+	});
+
+	it('unrelated event types (activity.added / project.changed / resync) → no-op', () => {
+		const events: RealtimeEvent[] = [
+			{ type: 'activity.added', activity: makeActivity({}), cursor: cur(1) },
+			{ type: 'project.changed', project: makeProject(), cursor: cur(1) },
+			{ type: 'resync', cursor: '' }
+		];
+		for (const e of events) {
+			const r = applyEditorEvent(it1, cur(0), e, false);
+			expect(r.item).toBe(it1);
+			expect(r.lastSeen).toBe(cur(0));
+			expect(r.affordance).toBe('none');
 		}
 	});
 });

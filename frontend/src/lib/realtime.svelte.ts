@@ -14,6 +14,7 @@
 import { fetchEventSource, type EventSourceMessage } from '@microsoft/fetch-event-source';
 
 import { supabase } from './supabase';
+import { auth } from './auth.svelte';
 import { API_BASE_URL, getAccessToken } from './api';
 import type { RealtimeEvent } from './realtime';
 import type { Activity } from './activity';
@@ -35,6 +36,19 @@ class RealtimeStore {
 	private currentToken: string | null = null;
 	private authSub: { unsubscribe: () => void } | null = null;
 
+	// Cursors of recent events the current user originated, populated via
+	// activity.added (which carries actor_id). Surfaces check this via
+	// isOwnEvent(cursor) so a user's own echo never raises the
+	// "updated/deleted elsewhere" affordance on themselves — only true
+	// cross-actor changes do. See the locked policy: "the actor's own echoed
+	// event is an idempotent no-op."
+	private readonly myCursors = new Set<string>();
+	// Window long enough to survive any SSE/listener delay between
+	// activity.added arriving and the surface's item.changed handler firing —
+	// in practice they fire back-to-back in the same dispatch loop, so 30s is
+	// pure safety margin against weird tab-throttling.
+	private static readonly OWN_CURSOR_TTL_MS = 30_000;
+
 	constructor() {
 		// Token rotation — re-handshake so future fetch-event-source reconnects
 		// don't 401 with a stale token. (SIGNED_IN/SIGNED_OUT are driven by the
@@ -49,6 +63,24 @@ class RealtimeStore {
 			});
 		});
 		this.authSub = data.subscription;
+
+		// Internal subscription, registered before any surface mounts (Set
+		// iteration is insertion-order, so this fires first). SSE delivers
+		// activity.added strictly before its companion item.changed, so by the
+		// time a surface's item.changed listener checks isOwnEvent(cursor),
+		// the cursor is already in the set.
+		this.on('activity.added', (ev) => {
+			if (ev.activity.actor_id !== auth.user?.id) return;
+			this.myCursors.add(ev.cursor);
+			setTimeout(() => this.myCursors.delete(ev.cursor), RealtimeStore.OWN_CURSOR_TTL_MS);
+		});
+	}
+
+	// True if `cursor` belongs to an event the current user originated. Used
+	// by editor surfaces to skip the "updated elsewhere" affordance on their
+	// own echoes.
+	isOwnEvent(cursor: string): boolean {
+		return this.myCursors.has(cursor);
 	}
 
 	// Tear down the auth subscription. Unused in production (the singleton lives

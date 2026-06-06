@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -43,6 +44,13 @@ const (
 	EventResync         = "resync"
 )
 
+// ItemHydrator turns a bare data.Item into the JSON shape the front-end
+// expects from REST endpoints (tags loaded, attachments signed). Wired at
+// hub construction so the events package stays decoupled from handlers /
+// storage — main.go supplies the implementation that reuses the REST
+// handlers' wrapping. nil = ship the bare item (used in tests).
+type ItemHydrator func(ctx context.Context, item *data.Item) (any, error)
+
 // CursorOf / ParseCursor: the wire form is "<RFC3339Nano>|<uuid>" — one
 // string for the SSE id / Last-Event-ID, decomposed into the (created_at,id)
 // keyset the data layer paginates on.
@@ -75,7 +83,7 @@ func ParseCursor(s string) (data.ActivityCursor, bool) {
 // live and catch-up reconstruct identically. item.changed/project.changed read
 // the *current* row; if it's since gone (sql.ErrNoRows) only activity.added is
 // emitted (the delete event carries the removal).
-func Build(ctx context.Context, db *sql.DB, a *data.Activity) ([]Message, error) {
+func Build(ctx context.Context, db *sql.DB, hydrate ItemHydrator, a *data.Activity) ([]Message, error) {
 	body, err := json.Marshal(a)
 	if err != nil {
 		return nil, err
@@ -106,7 +114,17 @@ func Build(ctx context.Context, db *sql.DB, a *data.Activity) ([]Message, error)
 			it, err := data.GetItemByID(ctx, db, itemID)
 			switch {
 			case err == nil:
-				d, _ := json.Marshal(it)
+				// Match REST payload shape (tags + signed attachments) so the
+				// front-end's Item type is satisfied identically by REST and SSE.
+				var payload any = it
+				if hydrate != nil {
+					if p, herr := hydrate(ctx, it); herr == nil {
+						payload = p
+					} else {
+						log.Printf("sse hydrate item %s: %v", itemID, herr)
+					}
+				}
+				d, _ := json.Marshal(payload)
 				msgs = append(msgs, Message{Event: EventItemChanged, Data: d, Cursor: cur, ProjectID: a.ProjectID})
 			case !errors.Is(err, sql.ErrNoRows):
 				return nil, err

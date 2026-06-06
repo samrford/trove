@@ -47,14 +47,26 @@ func (c *Conn) Done() <-chan struct{} { return c.done }
 // process; Run is the only goroutine that consumes notifications and fans
 // them out.
 type Hub struct {
-	db    *sql.DB
-	dsn   string
-	mu    sync.RWMutex
-	conns map[*Conn]struct{}
+	db      *sql.DB
+	dsn     string
+	hydrate ItemHydrator
+	mu      sync.RWMutex
+	conns   map[*Conn]struct{}
 }
 
-func NewHub(db *sql.DB, dsn string) *Hub {
-	return &Hub{db: db, dsn: dsn, conns: map[*Conn]struct{}{}}
+// NewHub builds the hub. hydrate is the function used to wrap raw items into
+// the JSON shape the front-end expects (tags + signed attachments); main.go
+// supplies one that reuses the REST handlers' wrapping. Pass nil in tests to
+// ship the bare data.Item.
+func NewHub(db *sql.DB, dsn string, hydrate ItemHydrator) *Hub {
+	return &Hub{db: db, dsn: dsn, hydrate: hydrate, conns: map[*Conn]struct{}{}}
+}
+
+// Build wraps the package-level Build with the hub's hydrator — used by both
+// the live dispatch path and the SSE handler's catch-up replay so the two
+// surfaces emit identical item payloads.
+func (h *Hub) Build(ctx context.Context, a *data.Activity) ([]Message, error) {
+	return Build(ctx, h.db, h.hydrate, a)
 }
 
 // Subscribe registers a client for its accessible project set (snapshot at
@@ -189,7 +201,7 @@ func (h *Hub) dispatch(ctx context.Context, payload string) {
 		log.Printf("sse get activity %s: %v", env.ActivityID, err)
 		return
 	}
-	msgs, err := Build(ctx, h.db, a)
+	msgs, err := h.Build(ctx, a)
 	if err != nil {
 		log.Printf("sse build %s: %v", env.ActivityID, err)
 		return
