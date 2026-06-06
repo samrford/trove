@@ -220,7 +220,7 @@
 
 			<section class="mt-8 border-t border-line pt-6">
 				<h2 class="mb-3 text-sm font-medium text-fg">Activity</h2>
-				<ActivityRail slug={project.slug} itemId={item.id} refreshKey={item} />
+				<ActivityRail slug={project.slug} itemId={item.id} />
 			</section>
 
 			<footer class="mt-10 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-faint">

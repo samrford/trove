@@ -475,7 +475,7 @@
 							<h3 class="mb-2 text-xs font-medium tracking-wide text-fg-faint uppercase">
 								Activity
 							</h3>
-							<ActivityRail slug={project.slug} itemId={item.id} limit={3} refreshKey={item} />
+							<ActivityRail slug={project.slug} itemId={item.id} limit={3} />
 						</div>
 					</div>
 				{/key}

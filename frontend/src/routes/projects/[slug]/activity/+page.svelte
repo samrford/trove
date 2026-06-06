@@ -13,6 +13,8 @@
 		type Activity
 	} from '$lib/activity';
 	import { errMsg } from '$lib/api';
+	import { realtime } from '$lib/realtime.svelte';
+	import { applyActivityFeed } from '$lib/realtime';
 	import ActivityEntry from '$lib/components/ActivityEntry.svelte';
 	import { ArrowLeft } from '@lucide/svelte';
 
@@ -72,31 +74,90 @@
 		};
 	}
 
-	// Refetch page 1 whenever a server-side filter changes.
-	$effect(() => {
+	// Live events arriving during a page-1 fetch — drained on resolve so a
+	// strictly-newer live event isn't overwritten by the fetch result. Used by
+	// both the filter-change effect below and the resync handler.
+	let pending: Activity[] = [];
+
+	function fetchPage1(isCancelled: () => boolean = () => false): void {
 		const slug = page.params.slug;
-		void selectedGroups;
-		void itemFilter;
-		void actorFilter;
-		if (!auth.user || !slug) return;
-		let cancelled = false;
-		feedGen++;
+		if (!slug) return;
+		const myGen = ++feedGen;
+		pending = [];
 		loading = true;
 		feedError = null;
 		listActivity(slug, fetchOpts(null))
 			.then((p) => {
-				if (cancelled) return;
-				entries = p.activity;
+				if (isCancelled() || myGen !== feedGen) return;
+				let merged = p.activity;
+				for (const a of pending) {
+					merged = applyActivityFeed(
+						merged,
+						{ type: 'activity.added', activity: a, cursor: '' },
+						Infinity
+					);
+				}
+				pending = [];
+				entries = merged;
 				nextCursor = p.next;
 			})
 			.catch((e) => {
-				if (!cancelled) feedError = errMsg(e);
+				if (isCancelled() || myGen !== feedGen) return;
+				feedError = errMsg(e);
 			})
 			.finally(() => {
-				if (!cancelled) loading = false;
+				if (!isCancelled() && myGen === feedGen) loading = false;
 			});
+	}
+
+	// Refetch page 1 whenever a server-side filter changes.
+	$effect(() => {
+		void selectedGroups;
+		void itemFilter;
+		void actorFilter;
+		if (!auth.user || !page.params.slug) return;
+		let cancelled = false;
+		fetchPage1(() => cancelled);
 		return () => {
 			cancelled = true;
+		};
+	});
+
+	// Live subscription. Prepends activity.added events that match the active
+	// server-side filters (action groups / item / actor); the reorders toggle
+	// is client-side so live reorders flow into entries either way — the
+	// derived `groups` decides whether to show them. The default 200 cap on
+	// applyActivityFeed would chop off the tail a `loadMore`-deep user just
+	// paginated to, so override to Infinity (the page is leaf-navigation —
+	// it'll GC on navigation away).
+	$effect(() => {
+		if (!project) return;
+		const projectId = project.id;
+
+		function matchesPageFilters(a: Activity): boolean {
+			if (a.project_id !== projectId) return false;
+			if (selectedGroups.length > 0) {
+				const allowed = actionsForGroups(selectedGroups);
+				if (!allowed.includes(a.action)) return false;
+			}
+			if (itemFilter && a.item_id !== itemFilter) return false;
+			if (actorFilter === 'me' && a.actor_id !== auth.user?.id) return false;
+			return true;
+		}
+
+		const unsubAdded = realtime.on('activity.added', (ev) => {
+			if (!matchesPageFilters(ev.activity)) return;
+			if (loading) {
+				// Page-1 fetch in flight — buffer for the merge on resolve.
+				pending.push(ev.activity);
+				return;
+			}
+			entries = applyActivityFeed(entries, ev, Infinity);
+		});
+		const unsubResync = realtime.on('resync', () => fetchPage1());
+		return () => {
+			unsubAdded();
+			unsubResync();
 		};
 	});
 

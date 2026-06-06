@@ -540,11 +540,7 @@
 			{/if}
 
 			<div class="mt-6">
-				<ActivityStrip
-					slug={project.slug}
-					onOpenPanel={() => (activityPanelOpen = true)}
-					refreshKey={items}
-				/>
+				<ActivityStrip {project} onOpenPanel={() => (activityPanelOpen = true)} />
 			</div>
 
 			<ConfirmDialog
@@ -573,7 +569,7 @@
 				onNext={nextItem ? goNext : undefined}
 			/>
 
-			<ActivityPanel bind:open={activityPanelOpen} slug={project.slug} refreshKey={items} />
+			<ActivityPanel bind:open={activityPanelOpen} {project} />
 		{/if}
 	</main>
 {/if}
