@@ -11,6 +11,8 @@
 	} from '$lib/api/items';
 	import { ApiError, errMsg } from '$lib/api';
 	import { appConfig } from '$lib/config.svelte';
+	import { realtime } from '$lib/realtime.svelte';
+	import { applyEditorEvent, type EditorAffordance } from '$lib/realtime';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -37,12 +39,61 @@
 	let gphotosOpen = $state(false);
 	const attachmentsEnabled = $derived(appConfig.config?.attachmentsEnabled ?? false);
 
+	// Live state — last applied SSE cursor for this item and any pending
+	// affordance ("updated/deleted elsewhere"). Editor isolation: applyEditorEvent
+	// won't destroy the open edit form while `editing` is true.
+	let lastSeen = $state('');
+	let affordance = $state<EditorAffordance>('none');
+
+	async function handleReload() {
+		// refreshItemFromServer manages affordance/lastSeen (clears on success,
+		// upgrades to deleted-elsewhere on 404), so don't blanket-clear here.
+		await refreshItemFromServer();
+		if (editing) cancelEdit();
+	}
+
+	// Listeners bind once on mount and read `item` / `lastSeen` / `editing`
+	// lazily inside callbacks — keeping the effect body free of reactive reads
+	// prevents the listeners from being torn down + re-bound every time an
+	// event writes back to `item` or `lastSeen`.
+	$effect(() => {
+		const unsubChanged = realtime.on('item.changed', (ev) => {
+			if (!item || ev.item.id !== item.id) return;
+			const r = applyEditorEvent(item, lastSeen, ev, isDirty, ev.actorId === auth.user?.id);
+			item = r.item;
+			lastSeen = r.lastSeen;
+			if (r.affordance !== 'none') affordance = r.affordance;
+		});
+		const unsubDeleted = realtime.on('item.deleted', (ev) => {
+			if (!item || ev.payload.id !== item.id) return;
+			const r = applyEditorEvent(item, lastSeen, ev, isDirty, ev.actorId === auth.user?.id);
+			lastSeen = r.lastSeen;
+			if (r.affordance !== 'none') affordance = r.affordance;
+		});
+		const unsubResync = realtime.on('resync', () => {
+			refreshItemFromServer();
+		});
+		return () => {
+			unsubChanged();
+			unsubDeleted();
+			unsubResync();
+		};
+	});
+
 	async function refreshItemFromServer() {
 		if (!project || !item) return;
 		try {
 			item = await getItem(project.slug, item.sequence);
+			affordance = 'none';
+			lastSeen = '';
 		} catch (e) {
-			saveError = errMsg(e);
+			// 404 → the item really is gone; surface the deleted-elsewhere banner
+			// instead of a generic error (matches the QuickView reload path).
+			if (e instanceof ApiError && e.status === 404) {
+				affordance = 'deleted-elsewhere';
+			} else {
+				saveError = errMsg(e);
+			}
 		}
 	}
 
@@ -51,6 +102,20 @@
 	let editBody = $state('');
 	let editKind = $state<ItemKind>('task');
 	let editStatus = $state<ItemStatus>('open');
+	// Baseline the scratch was seeded from — dirtiness is measured against this,
+	// not the live item, so a server-sync under a clean editor doesn't read as a
+	// local edit (see seedEditScratch + the re-seed effect below).
+	let seedBase = $state<{ title: string; body: string; kind: ItemKind; status: ItemStatus } | null>(
+		null
+	);
+	const isDirty = $derived(
+		editing &&
+			!!seedBase &&
+			(editTitle !== seedBase.title ||
+				editBody !== seedBase.body ||
+				editKind !== seedBase.kind ||
+				editStatus !== seedBase.status)
+	);
 
 	$effect(() => {
 		if (!auth.loading && !auth.user) goto('/login');
@@ -76,15 +141,37 @@
 			});
 	});
 
-	function startEdit() {
+	function seedEditScratch() {
 		if (!item) return;
 		editTitle = item.title;
 		editBody = item.body ?? '';
 		editKind = item.kind;
 		editStatus = item.status;
+		seedBase = { title: item.title, body: item.body ?? '', kind: item.kind, status: item.status };
+	}
+
+	function startEdit() {
+		if (!item) return;
+		seedEditScratch();
 		saveError = null;
 		editing = true;
 	}
+
+	// Re-seed the editor when its item is server-synced underneath a CLEAN (no
+	// local edits) open editor, so the form tracks the new base rather than the
+	// user silently saving over a remote change. Dirty editors get the
+	// "changed elsewhere" affordance instead and are left untouched.
+	$effect(() => {
+		if (!editing || !item || !seedBase || isDirty) return;
+		if (
+			item.title !== seedBase.title ||
+			(item.body ?? '') !== seedBase.body ||
+			item.kind !== seedBase.kind ||
+			item.status !== seedBase.status
+		) {
+			seedEditScratch();
+		}
+	});
 
 	function cancelEdit() {
 		editing = false;
@@ -141,6 +228,35 @@
 				{project ? project.name : 'Back'}
 			</a>
 		</div>
+
+		{#if affordance === 'updated-elsewhere'}
+			<div
+				class="mb-5 flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-accent"
+				role="status"
+			>
+				<span class="flex-1">This item was changed elsewhere.</span>
+				<button
+					type="button"
+					onclick={handleReload}
+					class="rounded-md border border-accent/40 px-2.5 py-1 text-xs font-medium text-accent transition hover:bg-accent/20"
+				>
+					Reload
+				</button>
+			</div>
+		{:else if affordance === 'deleted-elsewhere'}
+			<div
+				class="mb-5 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+				role="status"
+			>
+				<span class="flex-1">This item was deleted elsewhere.</span>
+				<a
+					href={project ? `/projects/${project.slug}` : '/'}
+					class="rounded-md border border-danger/40 px-2.5 py-1 text-xs font-medium text-danger transition hover:bg-danger/20"
+				>
+					Go back
+				</a>
+			</div>
+		{/if}
 
 		{#if notFound}
 			<div class="rounded-lg border border-line bg-card p-6 text-center sm:p-12">
@@ -220,7 +336,7 @@
 
 			<section class="mt-8 border-t border-line pt-6">
 				<h2 class="mb-3 text-sm font-medium text-fg">Activity</h2>
-				<ActivityRail slug={project.slug} itemId={item.id} refreshKey={item} />
+				<ActivityRail slug={project.slug} itemId={item.id} />
 			</section>
 
 			<footer class="mt-10 flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-faint">

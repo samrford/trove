@@ -1,27 +1,38 @@
 <script lang="ts">
 	import { listActivity } from '$lib/api/activity';
-	import { collapseBursts, isBurst, matchesFilter, type ActivityRow } from '$lib/activity';
+	import { isBurst, collapseBursts, type Activity, type ActivityRow } from '$lib/activity';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { errMsg } from '$lib/api';
+	import { realtime } from '$lib/realtime.svelte';
+	import { createLiveFeed, keepRealFor } from '$lib/liveActivityFeed.svelte';
+	import type { Project } from '$lib/api/projects';
 	import { relativeTime } from '$lib/time';
 	import ActivityEntry from './ActivityEntry.svelte';
 	import { fly } from 'svelte/transition';
 	import { X, ChevronDown, ChevronRight, ArrowRight } from '@lucide/svelte';
 
-	// Slide-in browse surface (mirrors QuickViewPanel's slide-in). ~20 recent, burst-collapsed.
+	// Slide-in browse surface (mirrors QuickViewPanel's slide-in). ~20 recent,
+	// burst-collapsed. Live via the realtime store: open → entries update
+	// in-place; closed → activity.added bumps newCount, which resets on next
+	// close (the badge stays visible during the open session so the user
+	// actually sees "N new arrived while you were away").
 
 	type Props = {
 		open?: boolean;
-		slug: string;
-		refreshKey?: unknown;
+		project: Pick<Project, 'id' | 'slug'>;
 	};
-	let { open = $bindable(false), slug, refreshKey }: Props = $props();
+	let { open = $bindable(false), project }: Props = $props();
 
-	let rows = $state<ActivityRow[] | null>(null);
-	let error = $state<string | null>(null);
+	let newCount = $state(0);
 	let expanded = new SvelteSet<string>();
-	// Driven by SSE in the next chunk; inert for now.
-	const newCount = $state(0);
+
+	const feed = createLiveFeed({
+		fetch: () => listActivity(project.slug, { limit: 20 }),
+		keep: keepRealFor((a: Activity) => a.project_id === project.id)
+	});
+
+	const rows = $derived<ActivityRow[] | null>(
+		feed.entries === null ? null : collapseBursts(feed.entries)
+	);
 
 	function burstKey(r: Extract<ActivityRow, { kind: 'burst' }>): string {
 		return r.entries[0].id;
@@ -31,26 +42,35 @@
 		else expanded.add(key);
 	}
 
+	// Catch-up fetch on open. newCount clears on close (the next session
+	// starts fresh); the badge persists during the open session so a user who
+	// opens after-a-while still sees how many arrived while they were away.
 	$effect(() => {
-		void refreshKey;
-		if (!open) return;
-		const s = slug;
-		if (!s) return;
-		let cancelled = false;
-		rows = null;
-		error = null;
-		listActivity(s, { limit: 20 })
-			.then((page) => {
-				if (!cancelled)
-					rows = collapseBursts(
-						page.activity.filter((e) => matchesFilter(e, { includeReorders: false }))
-					);
-			})
-			.catch((e) => {
-				if (!cancelled) error = errMsg(e);
-			});
+		if (!open) {
+			newCount = 0;
+			feed.invalidate();
+			return;
+		}
+		feed.load();
+	});
+
+	// Live subscription — always active. Re-subscribes only on project change,
+	// so opening/closing the panel doesn't churn the listener.
+	$effect(() => {
+		if (!project.id) return;
+		const unsubAdded = realtime.on('activity.added', (ev) => {
+			// Mirror the feed's keep so closed-state newCount agrees with the
+			// open-state ingest about what counts as "real activity here".
+			if (!feed.keep(ev.activity)) return;
+			if (open) feed.ingest(ev.activity);
+			else newCount = newCount + 1;
+		});
+		const unsubResync = realtime.on('resync', () => {
+			if (open) feed.load();
+		});
 		return () => {
-			cancelled = true;
+			unsubAdded();
+			unsubResync();
 		};
 	});
 
@@ -98,8 +118,8 @@
 		</header>
 
 		<div class="flex-1 overflow-y-auto px-4 py-3">
-			{#if error}
-				<p class="text-xs text-danger">{error}</p>
+			{#if feed.error}
+				<p class="text-xs text-danger">{feed.error}</p>
 			{:else if rows === null}
 				<p class="text-xs text-fg-faint">Loading…</p>
 			{:else if rows.length === 0}
@@ -141,7 +161,7 @@
 
 		<footer class="border-t border-line px-4 py-3">
 			<a
-				href={`/projects/${slug}/activity`}
+				href={`/projects/${project.slug}/activity`}
 				onclick={() => (open = false)}
 				class="inline-flex items-center gap-1.5 text-xs text-fg-muted transition hover:text-fg hover:underline"
 			>

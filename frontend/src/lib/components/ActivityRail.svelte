@@ -1,48 +1,44 @@
 <script lang="ts">
 	import { listActivity } from '$lib/api/activity';
-	import { matchesFilter, type Activity } from '$lib/activity';
-	import { errMsg } from '$lib/api';
+	import type { Activity } from '$lib/activity';
+	import { realtime } from '$lib/realtime.svelte';
+	import { createLiveFeed, keepRealFor } from '$lib/liveActivityFeed.svelte';
 	import ActivityEntry from './ActivityEntry.svelte';
 
 	type Props = {
 		slug: string;
 		itemId: string;
 		limit?: number;
-		refreshKey?: unknown;
 	};
-	let { slug, itemId, limit = 50, refreshKey }: Props = $props();
+	let { slug, itemId, limit = 50 }: Props = $props();
 
-	let entries = $state<Activity[] | null>(null);
-	let error = $state<string | null>(null);
+	// Buffer holds *real* events only — the `keep` filter drops reorders at
+	// ingress (catch-up + live), so a noisy live reorder stream can't push
+	// real events out of applyActivityFeed's 200 cap.
+	const feed = createLiveFeed({
+		// Over-fetch past `limit` so dropping reorders from the catch-up
+		// snapshot still yields up to `limit` real events.
+		fetch: () => listActivity(slug, { itemId, limit: Math.max(limit * 4, 20) }),
+		keep: keepRealFor((a: Activity) => a.item_id === itemId)
+	});
+
+	const entries = $derived(feed.entries === null ? null : feed.entries.slice(0, limit));
 
 	$effect(() => {
-		void refreshKey; // track so a parent bump refetches
-		const s = slug;
-		const id = itemId;
-		if (!s || !id) return;
-		let cancelled = false;
-		entries = null;
-		error = null;
-		// Over-fetch past `limit` so dropping reorders client-side still yields
-		// up to `limit` real events (mirrors ActivityStrip's buffer).
-		listActivity(s, { itemId: id, limit: Math.max(limit * 4, 20) })
-			.then((page) => {
-				if (cancelled) return;
-				entries = page.activity
-					.filter((e) => matchesFilter(e, { includeReorders: false }))
-					.slice(0, limit);
-			})
-			.catch((e) => {
-				if (!cancelled) error = errMsg(e);
-			});
+		if (!slug || !itemId) return;
+		feed.load();
+		const unsubAdded = realtime.on('activity.added', (ev) => feed.ingest(ev.activity));
+		const unsubResync = realtime.on('resync', () => feed.load());
 		return () => {
-			cancelled = true;
+			feed.invalidate();
+			unsubAdded();
+			unsubResync();
 		};
 	});
 </script>
 
-{#if error}
-	<p class="text-xs text-danger">{error}</p>
+{#if feed.error}
+	<p class="text-xs text-danger">{feed.error}</p>
 {:else if entries === null}
 	<p class="text-xs text-fg-faint">Loading…</p>
 {:else if entries.length === 0}

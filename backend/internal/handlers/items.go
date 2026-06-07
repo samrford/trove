@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -61,6 +62,45 @@ func (h *ItemsHandler) itemsToResponses(r *http.Request, items []data.Item) ([]I
 		}
 	}
 	return out, nil
+}
+
+// HydrateItemForSSE produces the same JSON shape the REST item endpoints do
+// (tags loaded + signed attachments) for use by the SSE pipeline. Wired as the
+// hub's ItemHydrator in main.go so REST and SSE payloads are byte-shape
+// identical for the front-end's Item type. Mutates `item` in-place to attach
+// the freshly-loaded tags (matches the REST path's behavior).
+func (h *ItemsHandler) HydrateItemForSSE(ctx context.Context, item *data.Item) (any, error) {
+	// data.GetItemByID doesn't load tags; the REST list/get handlers populate
+	// them separately. SSE needs the same.
+	if tags, err := data.GetTagsForItem(ctx, h.db, item.ID); err == nil {
+		item.Tags = tags
+	} else {
+		log.Printf("sse hydrate tags %s: %v", item.ID, err)
+	}
+
+	resp := ItemResponse{Item: *item, Attachments: []AttachmentResponse{}}
+	if h.store == nil {
+		return resp, nil
+	}
+	// Attachments are best-effort: a query/signing failure degrades to an empty
+	// list rather than failing the whole event. Returning an error here would
+	// make Build fall back to the bare data.Item — which has no `attachments`
+	// field and crashes the front-end's Item consumers / wrongly evicts on the
+	// tags page. A degraded (attachments-less) item is strictly better.
+	list, err := data.ListAttachmentsForItem(ctx, h.db, item.ID)
+	if err != nil {
+		log.Printf("sse hydrate attachments %s: %v", item.ID, err)
+		return resp, nil
+	}
+	if len(list) > 0 {
+		signed, err := SignAttachments(ctx, h.store, list)
+		if err != nil {
+			log.Printf("sse sign attachments %s: %v", item.ID, err)
+			return resp, nil
+		}
+		resp.Attachments = signed
+	}
+	return resp, nil
 }
 
 // itemToResponse is the single-item analogue. Cheaper than going through

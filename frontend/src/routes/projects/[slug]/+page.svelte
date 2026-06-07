@@ -5,6 +5,7 @@
 		listItems,
 		updateItem,
 		detachTagFromItem,
+		getItem,
 		type Item,
 		type ItemKind,
 		type ItemStatus,
@@ -12,7 +13,14 @@
 		ITEM_KINDS
 	} from '$lib/api/items';
 	import { listTagsForProject, type TagWithCount } from '$lib/api/tags';
-	import { errMsg } from '$lib/api';
+	import { ApiError, errMsg } from '$lib/api';
+	import { realtime } from '$lib/realtime.svelte';
+	import {
+		applyEditorEvent,
+		applyItemEvent,
+		applyProjectEvent,
+		type EditorAffordance
+	} from '$lib/realtime';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -60,10 +68,28 @@
 
 	let quickViewItem = $state<Item | null>(null);
 	let quickViewOpen = $state(false);
+	// Bound from QuickViewPanel: `editing` = editor open (for reset on item
+	// switch); `dirty` = real unsaved edits. The parent's listener silently syncs
+	// the prop when clean, or surfaces an affordance only when genuinely dirty.
+	let quickViewEditing = $state(false);
+	let quickViewDirty = $state(false);
+	let quickViewAffordance = $state<EditorAffordance>('none');
+
+	// Per-id cursor map for the items list, the project's own cursor, and a
+	// dedicated cursor for the QuickView item — out-of-order safety lives in
+	// applyItemEvent / applyProjectEvent / applyEditorEvent.
+	let itemsLastSeen = $state<Record<string, string>>({});
+	let projectLastSeen = $state('');
+	let quickViewLastSeen = $state('');
 
 	function openQuickView(item: Item) {
 		quickViewItem = item;
 		quickViewOpen = true;
+		// Drop edit mode + any prior affordance — both referred to the previous item.
+		quickViewEditing = false;
+		quickViewDirty = false;
+		quickViewAffordance = 'none';
+		quickViewLastSeen = '';
 	}
 
 	function refreshTagsInProject() {
@@ -174,13 +200,116 @@
 	});
 
 	// Items load: fires on initial project load and whenever the tag filter
-	// changes. Server-side filter so AND/OR semantics match the backend exactly.
+	// changes. Server-side filter is the initial snapshot; client-side filter
+	// in `filtered` handles items that SSE adds outside the active filter scope
+	// (e.g. a teammate retags an item out of our view).
 	$effect(() => {
 		if (!project) return;
 		const opts = selectedTagSlugs.length > 0 ? { tags: selectedTagSlugs, tagMode } : undefined;
 		listItems(project.slug, opts)
-			.then((res) => (items = res))
+			.then((res) => {
+				items = res;
+				itemsLastSeen = {};
+			})
 			.catch((e) => (itemError = errMsg(e)));
+	});
+
+	async function reloadQuickViewItem(): Promise<void> {
+		if (!quickViewItem || !project) return;
+		try {
+			const fresh = await getItem(project.slug, quickViewItem.sequence);
+			quickViewItem = fresh;
+			items = items?.map((i) => (i.id === fresh.id ? fresh : i)) ?? null;
+			// Drop cursors for this item so a reordered older event arriving
+			// post-reload can't clobber the freshly fetched state.
+			itemsLastSeen = { ...itemsLastSeen, [fresh.id]: '' };
+			quickViewLastSeen = '';
+			quickViewAffordance = 'none';
+		} catch (e) {
+			// 404 → the item really is gone; upgrade to deleted-elsewhere so the
+			// "Reload" banner doesn't stay stuck behind a generic error.
+			if (e instanceof ApiError && e.status === 404) {
+				quickViewAffordance = 'deleted-elsewhere';
+			} else {
+				itemError = errMsg(e);
+			}
+		}
+	}
+
+	// Live updates: items list (board) + project metadata + QuickView item.
+	// Listeners bind once on mount and read `project` / `items` / `quickView*`
+	// lazily — keeping the effect body free of reactive reads prevents the
+	// listeners from being torn down + re-bound on every applied event.
+	$effect(() => {
+		const unsubChanged = realtime.on('item.changed', (ev) => {
+			if (!project || ev.item.project_id !== project.id) return;
+			const result = applyItemEvent({ items: items ?? [], lastSeen: itemsLastSeen }, ev, null);
+			items = result.items;
+			itemsLastSeen = result.lastSeen;
+			// Route the QuickView path through applyEditorEvent so staleness +
+			// editor-isolation policy match the single-item surfaces exactly.
+			if (quickViewItem && quickViewItem.id === ev.item.id) {
+				const r = applyEditorEvent(
+					quickViewItem,
+					quickViewLastSeen,
+					ev,
+					quickViewDirty,
+					ev.actorId === auth.user?.id
+				);
+				quickViewItem = r.item;
+				quickViewLastSeen = r.lastSeen;
+				if (r.affordance !== 'none') quickViewAffordance = r.affordance;
+			}
+		});
+
+		const unsubDeleted = realtime.on('item.deleted', (ev) => {
+			if (!project || ev.payload.project_id !== project.id) return;
+			const result = applyItemEvent({ items: items ?? [], lastSeen: itemsLastSeen }, ev, null);
+			items = result.items;
+			itemsLastSeen = result.lastSeen;
+			if (quickViewItem && quickViewItem.id === ev.payload.id) {
+				const r = applyEditorEvent(
+					quickViewItem,
+					quickViewLastSeen,
+					ev,
+					quickViewDirty,
+					ev.actorId === auth.user?.id
+				);
+				quickViewLastSeen = r.lastSeen;
+				if (r.affordance !== 'none') quickViewAffordance = r.affordance;
+			}
+		});
+
+		const unsubProjectChanged = realtime.on('project.changed', (ev) => {
+			if (!project || ev.project.id !== project.id) return;
+			const result = applyProjectEvent({ project, lastSeen: projectLastSeen }, ev);
+			project = result.project;
+			projectLastSeen = result.lastSeen;
+		});
+
+		const unsubResync = realtime.on('resync', () => {
+			if (!project) return;
+			const opts = selectedTagSlugs.length > 0 ? { tags: selectedTagSlugs, tagMode } : undefined;
+			listItems(project.slug, opts)
+				.then((res) => {
+					items = res;
+					itemsLastSeen = {};
+				})
+				.catch((e) => console.error('[realtime] resync listItems failed', e));
+			getProject(project.slug)
+				.then((p) => {
+					project = p;
+					projectLastSeen = '';
+				})
+				.catch((e) => console.error('[realtime] resync getProject failed', e));
+		});
+
+		return () => {
+			unsubChanged();
+			unsubDeleted();
+			unsubProjectChanged();
+			unsubResync();
+		};
 	});
 
 	function toggleTagFilter(slug: string) {
@@ -208,10 +337,30 @@
 		}
 	}
 
-	const filtered = $derived(items?.filter((i) => !kindFilter || i.kind === kindFilter) ?? []);
+	// Client-side filter — server-side filter on listItems is the initial
+	// snapshot, but SSE can add items that fall outside the active scope
+	// (other actors retagging, etc.). Re-checking here keeps the visible view
+	// consistent without round-tripping on every event.
+	const filtered = $derived(
+		items?.filter((i) => {
+			if (kindFilter && i.kind !== kindFilter) return false;
+			if (selectedTagSlugs.length > 0) {
+				const matches =
+					tagMode === 'and'
+						? selectedTagSlugs.every((s) => i.tags.some((t) => t.slug === s))
+						: selectedTagSlugs.some((s) => i.tags.some((t) => t.slug === s));
+				if (!matches) return false;
+			}
+			return true;
+		}) ?? []
+	);
 
 	function bucket(status: ItemStatus): Item[] {
-		return filtered.filter((i) => i.status === status);
+		// Sort by position (DESC, matching the backend's list order) so live SSE
+		// updates — which append unseen items / replace in place — and optimistic
+		// drags render in position order rather than raw array order. Without this
+		// a remote/other-tab create lands at the bottom of its column.
+		return filtered.filter((i) => i.status === status).sort((a, b) => b.position - a.position);
 	}
 
 	// Items in the order they appear on screen — used by the quick view panel
@@ -233,10 +382,18 @@
 	);
 
 	function goPrev() {
-		if (prevItem) quickViewItem = prevItem;
+		if (prevItem) {
+			quickViewItem = prevItem;
+			quickViewAffordance = 'none';
+			quickViewLastSeen = '';
+		}
 	}
 	function goNext() {
-		if (nextItem) quickViewItem = nextItem;
+		if (nextItem) {
+			quickViewItem = nextItem;
+			quickViewAffordance = 'none';
+			quickViewLastSeen = '';
+		}
 	}
 
 	async function performDelete() {
@@ -540,11 +697,7 @@
 			{/if}
 
 			<div class="mt-6">
-				<ActivityStrip
-					slug={project.slug}
-					onOpenPanel={() => (activityPanelOpen = true)}
-					refreshKey={items}
-				/>
+				<ActivityStrip {project} onOpenPanel={() => (activityPanelOpen = true)} />
 			</div>
 
 			<ConfirmDialog
@@ -565,15 +718,19 @@
 
 			<QuickViewPanel
 				bind:open={quickViewOpen}
+				bind:editing={quickViewEditing}
+				bind:dirty={quickViewDirty}
 				item={quickViewItem}
 				{project}
+				affordance={quickViewAffordance}
+				onReload={reloadQuickViewItem}
 				onUpdated={handleItemUpdated}
 				onDeleted={handleItemDeleted}
 				onPrev={prevItem ? goPrev : undefined}
 				onNext={nextItem ? goNext : undefined}
 			/>
 
-			<ActivityPanel bind:open={activityPanelOpen} slug={project.slug} refreshKey={items} />
+			<ActivityPanel bind:open={activityPanelOpen} {project} />
 		{/if}
 	</main>
 {/if}

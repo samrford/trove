@@ -169,6 +169,26 @@ func DeleteProject(ctx context.Context, tx *sql.Tx, projectID string) error {
 	return nil
 }
 
+// GetProjectByID fetches a project with no access check. The SSE hub uses it
+// for project.changed events — fan-out is already authorised by the connection's
+// accessible-project set, so this is an unscoped by-id read like GetItemByID.
+// Do NOT use this in handlers that should enforce access control, use GetProjectForUser instead.
+func GetProjectByID(ctx context.Context, db *sql.DB, id string) (*Project, error) {
+	var p Project
+	err := db.QueryRowContext(ctx, `
+		SELECT id, slug, name, description, colour, icon,
+		       owner_id, archived_at, created_at, updated_at
+		FROM projects WHERE id = $1
+	`, id).Scan(
+		&p.ID, &p.Slug, &p.Name, &p.Description, &p.Colour, &p.Icon,
+		&p.OwnerID, &p.ArchivedAt, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // GetProjectForUser fetches a single project by slug or UUID, ensuring the user
 // has access (owner or member). Returns sql.ErrNoRows if not found / unauthorised.
 func GetProjectForUser(ctx context.Context, db *sql.DB, userID, slugOrID string) (*Project, error) {
@@ -194,4 +214,3 @@ func GetProjectForUser(ctx context.Context, db *sql.DB, userID, slugOrID string)
 	}
 	return &p, nil
 }
-

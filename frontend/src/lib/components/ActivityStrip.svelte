@@ -1,43 +1,42 @@
 <script lang="ts">
 	import { listActivity } from '$lib/api/activity';
-	import { matchesFilter, type Activity } from '$lib/activity';
-	import { errMsg } from '$lib/api';
+	import type { Activity } from '$lib/activity';
+	import { realtime } from '$lib/realtime.svelte';
+	import { createLiveFeed, keepRealFor } from '$lib/liveActivityFeed.svelte';
+	import type { Project } from '$lib/api/projects';
 	import ActivityEntry from './ActivityEntry.svelte';
 	import { ChevronRight } from '@lucide/svelte';
 
 	// Ambient strip on the project page: the latest few real events + a CTA
-	// into the panel.
+	// into the panel. Live via the realtime store; the catch-up fetch covers
+	// initial render + reconnect-resync.
 
 	type Props = {
-		slug: string;
+		project: Pick<Project, 'id' | 'slug'>;
 		onOpenPanel: () => void;
-		refreshKey?: unknown;
 	};
-	let { slug, onOpenPanel, refreshKey }: Props = $props();
+	let { project, onOpenPanel }: Props = $props();
 
 	const SHOWN = 3;
 
-	let entries = $state<Activity[] | null>(null);
-	let error = $state<string | null>(null);
+	// Over-fetch from the server so dropping reorders from the catch-up
+	// snapshot still yields a populated strip.
+	const feed = createLiveFeed({
+		fetch: () => listActivity(project.slug, { limit: 20 }),
+		keep: keepRealFor((a: Activity) => a.project_id === project.id)
+	});
+
+	const entries = $derived(feed.entries === null ? null : feed.entries.slice(0, SHOWN));
 
 	$effect(() => {
-		void refreshKey;
-		const s = slug;
-		if (!s) return;
-		let cancelled = false;
-		// Over-fetch then drop reorders client-side so we still get shown real ones.
-		listActivity(s, { limit: 20 })
-			.then((page) => {
-				if (cancelled) return;
-				entries = page.activity
-					.filter((e) => matchesFilter(e, { includeReorders: false }))
-					.slice(0, SHOWN);
-			})
-			.catch((e) => {
-				if (!cancelled) error = errMsg(e);
-			});
+		if (!project.slug || !project.id) return;
+		feed.load();
+		const unsubAdded = realtime.on('activity.added', (ev) => feed.ingest(ev.activity));
+		const unsubResync = realtime.on('resync', () => feed.load());
 		return () => {
-			cancelled = true;
+			feed.invalidate();
+			unsubAdded();
+			unsubResync();
 		};
 	});
 </script>
@@ -55,8 +54,8 @@
 		</button>
 	</header>
 	<div class="px-4 py-3">
-		{#if error}
-			<p class="text-xs text-danger">{error}</p>
+		{#if feed.error}
+			<p class="text-xs text-danger">{feed.error}</p>
 		{:else if entries === null}
 			<p class="text-xs text-fg-faint">Loading…</p>
 		{:else if entries.length === 0}

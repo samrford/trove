@@ -15,6 +15,7 @@
 	import { listTags, type Tag, type TagWithCount } from '$lib/api/tags';
 	import type { Project } from '$lib/api/projects';
 	import { errMsg } from '$lib/api';
+	import type { EditorAffordance } from '$lib/realtime';
 	import { animations } from '$lib/animations.svelte';
 	import { appConfig } from '$lib/config.svelte';
 	import { KIND_LABEL, STATUS_LABEL, kindChipStyle } from '$lib/itemDisplay';
@@ -42,8 +43,20 @@
 
 	type Props = {
 		open?: boolean;
+		// Bindable so the parent knows the editor is open (e.g. to reset on item
+		// switch).
+		editing?: boolean;
+		// Bindable real-dirtiness (scratch differs from the seeded baseline) so
+		// the parent's SSE listener can silently sync the item prop when clean, or
+		// raise an affordance only when there are genuine unsaved edits.
+		dirty?: boolean;
 		item: Item | null;
 		project: Project | null;
+		// Parent-managed: set by the parent's realtime listener when a remote
+		// change targets this item while editing, or when it's deleted.
+		affordance?: EditorAffordance;
+		// Parent-provided refetch — clears the affordance + re-syncs the prop.
+		onReload?: () => void | Promise<void>;
 		onUpdated?: (item: Item) => void;
 		onDeleted?: (item: Item) => void;
 		onPrev?: () => void;
@@ -52,8 +65,14 @@
 
 	let {
 		open = $bindable(false),
+		editing = $bindable(false),
+		// $bindable() fallback — overwritten by the `dirty = isDirty` $effect below.
+		// eslint-disable-next-line no-useless-assignment
+		dirty = $bindable(false),
 		item,
 		project,
+		affordance = 'none',
+		onReload,
 		onUpdated,
 		onDeleted,
 		onPrev,
@@ -62,12 +81,24 @@
 
 	let actionError = $state<string | null>(null);
 	let deleteConfirmOpen = $state(false);
-
-	let editing = $state(false);
 	let saving = $state(false);
 	let editTitle = $state('');
 	let editBody = $state('');
 	let editKind = $state<ItemKind>('task');
+	// Baseline the scratch was seeded from. Dirtiness is measured against this
+	// (not the live item) so a server-sync under a clean editor isn't mistaken
+	// for a local edit. Status/tags are applied immediately, so they're not part
+	// of the editor scratch.
+	let seedBase = $state<{ title: string; body: string; kind: ItemKind } | null>(null);
+	const isDirty = $derived(
+		editing &&
+			!!seedBase &&
+			(editTitle !== seedBase.title || editBody !== seedBase.body || editKind !== seedBase.kind)
+	);
+	// Surface real-dirtiness to the parent (drives the editor-isolation policy).
+	$effect(() => {
+		dirty = isDirty;
+	});
 
 	let availableTags = $state<TagWithCount[]>([]);
 
@@ -138,19 +169,47 @@
 		actionError = null;
 	}
 
-	function startEdit() {
+	function seedEditScratch() {
 		if (!item) return;
 		editTitle = item.title;
 		editBody = item.body ?? '';
 		editKind = item.kind;
+		seedBase = { title: item.title, body: item.body ?? '', kind: item.kind };
+	}
+
+	function startEdit() {
+		if (!item) return;
+		seedEditScratch();
 		actionError = null;
 		editing = true;
 		refreshAvailableTags();
 	}
 
+	// Re-seed the editor when the item is server-synced underneath a CLEAN (no
+	// local edits) open editor, so the form tracks the new base rather than
+	// silently saving over a remote change. Dirty editors raise an affordance
+	// (via the parent) and are left untouched.
+	$effect(() => {
+		if (!editing || !item || !seedBase || isDirty) return;
+		if (
+			item.title !== seedBase.title ||
+			(item.body ?? '') !== seedBase.body ||
+			item.kind !== seedBase.kind
+		) {
+			seedEditScratch();
+		}
+	});
+
 	function cancelEdit() {
 		editing = false;
 		actionError = null;
+	}
+
+	// Reload affordance handler: parent refetches the item; we drop edit
+	// mode so the freshly synced prop is what the user sees.
+	async function handleReload() {
+		await onReload?.();
+		cancelEdit();
 	}
 
 	async function saveEdit() {
@@ -360,6 +419,41 @@
 			</div>
 		</header>
 
+		<!-- Editor-isolation affordance — non-destructive banner so a remote
+			 change to this item doesn't destroy an open editor. -->
+		{#if affordance === 'updated-elsewhere'}
+			<div
+				class="flex items-center gap-2 border-b border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent"
+				role="status"
+			>
+				<span class="flex-1">This item was changed elsewhere.</span>
+				<button
+					type="button"
+					onclick={handleReload}
+					class="rounded-md border border-accent/40 px-2 py-0.5 font-medium text-accent transition hover:bg-accent/20"
+				>
+					Reload
+				</button>
+			</div>
+		{:else if affordance === 'deleted-elsewhere'}
+			<div
+				class="flex items-center gap-2 border-b border-danger/40 bg-danger/10 px-4 py-2 text-xs text-danger"
+				role="status"
+			>
+				<span class="flex-1">This item was deleted elsewhere.</span>
+				<button
+					type="button"
+					onclick={() => {
+						if (editing) cancelEdit();
+						open = false;
+					}}
+					class="rounded-md border border-danger/40 px-2 py-0.5 font-medium text-danger transition hover:bg-danger/20"
+				>
+					Close
+				</button>
+			</div>
+		{/if}
+
 		<!-- Scrollable content -->
 		{#if editing}
 			<div class="flex-1 overflow-y-auto px-5 py-4">
@@ -475,7 +569,7 @@
 							<h3 class="mb-2 text-xs font-medium tracking-wide text-fg-faint uppercase">
 								Activity
 							</h3>
-							<ActivityRail slug={project.slug} itemId={item.id} limit={3} refreshKey={item} />
+							<ActivityRail slug={project.slug} itemId={item.id} limit={3} />
 						</div>
 					</div>
 				{/key}
