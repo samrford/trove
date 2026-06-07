@@ -74,9 +74,12 @@ func ParseCursor(s string) (data.ActivityCursor, bool) {
 // Build turns one activity row into the SSE messages it implies:
 //
 //   - always: activity.added (feeds the activity surfaces)
-//   - item.deleted action      -> item.deleted {id,seq,project_id}
-//   - other item-scoped action -> item.changed (the full current Item)
+//   - item.deleted action      -> item.deleted {id,seq,project_id,actor_id}
+//   - other item-scoped action -> item.changed {item: <full Item>, actor_id}
 //   - project.created/updated  -> project.changed (the full Project)
+//
+// item.changed/item.deleted carry actor_id so the front-end can identify the
+// actor's own echo (and skip the "changed elsewhere" affordance) directly.
 //
 // The item id comes from the self-contained payload snapshot (present even on
 // item.deleted, where the row's item_id has gone NULL via FK SET NULL) — so
@@ -99,11 +102,18 @@ func Build(ctx context.Context, db *sql.DB, hydrate ItemHydrator, a *data.Activi
 	}
 	_ = json.Unmarshal(a.Payload, &snap)
 	itemID := snap.Item.ID
+	// Fall back to the row's item_id column when the payload snapshot predates
+	// the `id` field (older rows replayed on catch-up). The column is NULL only
+	// for item.deleted (FK SET NULL), where the snapshot is the sole source.
+	if itemID == "" && a.ItemID != nil {
+		itemID = *a.ItemID
+	}
 
 	switch a.Action {
 	case data.ActivityItemDeleted:
 		d, _ := json.Marshal(map[string]any{
 			"id": itemID, "seq": snap.Item.Seq, "project_id": a.ProjectID,
+			"actor_id": a.ActorID,
 		})
 		msgs = append(msgs, Message{Event: EventItemDeleted, Data: d, Cursor: cur, ProjectID: a.ProjectID})
 
@@ -124,7 +134,11 @@ func Build(ctx context.Context, db *sql.DB, hydrate ItemHydrator, a *data.Activi
 						log.Printf("sse hydrate item %s: %v", itemID, herr)
 					}
 				}
-				d, _ := json.Marshal(payload)
+				// Wrap the item with its originating actor so the front-end can
+				// suppress the "changed elsewhere" affordance on the actor's own
+				// echo by comparing actor_id directly — no fragile correlation
+				// with the sibling activity.added frame.
+				d, _ := json.Marshal(map[string]any{"item": payload, "actor_id": a.ActorID})
 				msgs = append(msgs, Message{Event: EventItemChanged, Data: d, Cursor: cur, ProjectID: a.ProjectID})
 			case !errors.Is(err, sql.ErrNoRows):
 				return nil, err

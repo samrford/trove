@@ -46,9 +46,9 @@
 	let affordance = $state<EditorAffordance>('none');
 
 	async function handleReload() {
+		// refreshItemFromServer manages affordance/lastSeen (clears on success,
+		// upgrades to deleted-elsewhere on 404), so don't blanket-clear here.
 		await refreshItemFromServer();
-		affordance = 'none';
-		lastSeen = '';
 		if (editing) cancelEdit();
 	}
 
@@ -59,14 +59,14 @@
 	$effect(() => {
 		const unsubChanged = realtime.on('item.changed', (ev) => {
 			if (!item || ev.item.id !== item.id) return;
-			const r = applyEditorEvent(item, lastSeen, ev, editing, realtime.isOwnEvent(ev.cursor));
+			const r = applyEditorEvent(item, lastSeen, ev, isDirty, ev.actorId === auth.user?.id);
 			item = r.item;
 			lastSeen = r.lastSeen;
 			if (r.affordance !== 'none') affordance = r.affordance;
 		});
 		const unsubDeleted = realtime.on('item.deleted', (ev) => {
 			if (!item || ev.payload.id !== item.id) return;
-			const r = applyEditorEvent(item, lastSeen, ev, editing, realtime.isOwnEvent(ev.cursor));
+			const r = applyEditorEvent(item, lastSeen, ev, isDirty, ev.actorId === auth.user?.id);
 			lastSeen = r.lastSeen;
 			if (r.affordance !== 'none') affordance = r.affordance;
 		});
@@ -84,8 +84,16 @@
 		if (!project || !item) return;
 		try {
 			item = await getItem(project.slug, item.sequence);
+			affordance = 'none';
+			lastSeen = '';
 		} catch (e) {
-			saveError = errMsg(e);
+			// 404 → the item really is gone; surface the deleted-elsewhere banner
+			// instead of a generic error (matches the QuickView reload path).
+			if (e instanceof ApiError && e.status === 404) {
+				affordance = 'deleted-elsewhere';
+			} else {
+				saveError = errMsg(e);
+			}
 		}
 	}
 
@@ -94,6 +102,20 @@
 	let editBody = $state('');
 	let editKind = $state<ItemKind>('task');
 	let editStatus = $state<ItemStatus>('open');
+	// Baseline the scratch was seeded from — dirtiness is measured against this,
+	// not the live item, so a server-sync under a clean editor doesn't read as a
+	// local edit (see seedEditScratch + the re-seed effect below).
+	let seedBase = $state<{ title: string; body: string; kind: ItemKind; status: ItemStatus } | null>(
+		null
+	);
+	const isDirty = $derived(
+		editing &&
+			!!seedBase &&
+			(editTitle !== seedBase.title ||
+				editBody !== seedBase.body ||
+				editKind !== seedBase.kind ||
+				editStatus !== seedBase.status)
+	);
 
 	$effect(() => {
 		if (!auth.loading && !auth.user) goto('/login');
@@ -119,15 +141,37 @@
 			});
 	});
 
-	function startEdit() {
+	function seedEditScratch() {
 		if (!item) return;
 		editTitle = item.title;
 		editBody = item.body ?? '';
 		editKind = item.kind;
 		editStatus = item.status;
+		seedBase = { title: item.title, body: item.body ?? '', kind: item.kind, status: item.status };
+	}
+
+	function startEdit() {
+		if (!item) return;
+		seedEditScratch();
 		saveError = null;
 		editing = true;
 	}
+
+	// Re-seed the editor when its item is server-synced underneath a CLEAN (no
+	// local edits) open editor, so the form tracks the new base rather than the
+	// user silently saving over a remote change. Dirty editors get the
+	// "changed elsewhere" affordance instead and are left untouched.
+	$effect(() => {
+		if (!editing || !item || !seedBase || isDirty) return;
+		if (
+			item.title !== seedBase.title ||
+			(item.body ?? '') !== seedBase.body ||
+			item.kind !== seedBase.kind ||
+			item.status !== seedBase.status
+		) {
+			seedEditScratch();
+		}
+	});
 
 	function cancelEdit() {
 		editing = false;

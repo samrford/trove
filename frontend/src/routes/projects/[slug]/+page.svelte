@@ -68,9 +68,11 @@
 
 	let quickViewItem = $state<Item | null>(null);
 	let quickViewOpen = $state(false);
-	// Bindable from QuickViewPanel so the parent listener knows whether to
-	// silently sync the prop (clean) or surface an affordance (dirty editor).
+	// Bound from QuickViewPanel: `editing` = editor open (for reset on item
+	// switch); `dirty` = real unsaved edits. The parent's listener silently syncs
+	// the prop when clean, or surfaces an affordance only when genuinely dirty.
 	let quickViewEditing = $state(false);
+	let quickViewDirty = $state(false);
 	let quickViewAffordance = $state<EditorAffordance>('none');
 
 	// Per-id cursor map for the items list, the project's own cursor, and a
@@ -85,6 +87,7 @@
 		quickViewOpen = true;
 		// Drop edit mode + any prior affordance — both referred to the previous item.
 		quickViewEditing = false;
+		quickViewDirty = false;
 		quickViewAffordance = 'none';
 		quickViewLastSeen = '';
 	}
@@ -250,8 +253,8 @@
 					quickViewItem,
 					quickViewLastSeen,
 					ev,
-					quickViewEditing,
-					realtime.isOwnEvent(ev.cursor)
+					quickViewDirty,
+					ev.actorId === auth.user?.id
 				);
 				quickViewItem = r.item;
 				quickViewLastSeen = r.lastSeen;
@@ -269,8 +272,8 @@
 					quickViewItem,
 					quickViewLastSeen,
 					ev,
-					quickViewEditing,
-					realtime.isOwnEvent(ev.cursor)
+					quickViewDirty,
+					ev.actorId === auth.user?.id
 				);
 				quickViewLastSeen = r.lastSeen;
 				if (r.affordance !== 'none') quickViewAffordance = r.affordance;
@@ -353,7 +356,11 @@
 	);
 
 	function bucket(status: ItemStatus): Item[] {
-		return filtered.filter((i) => i.status === status);
+		// Sort by position (DESC, matching the backend's list order) so live SSE
+		// updates — which append unseen items / replace in place — and optimistic
+		// drags render in position order rather than raw array order. Without this
+		// a remote/other-tab create lands at the bottom of its column.
+		return filtered.filter((i) => i.status === status).sort((a, b) => b.position - a.position);
 	}
 
 	// Items in the order they appear on screen — used by the quick view panel
@@ -712,6 +719,7 @@
 			<QuickViewPanel
 				bind:open={quickViewOpen}
 				bind:editing={quickViewEditing}
+				bind:dirty={quickViewDirty}
 				item={quickViewItem}
 				{project}
 				affordance={quickViewAffordance}

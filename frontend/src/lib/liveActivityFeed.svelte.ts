@@ -56,8 +56,11 @@ export class LiveFeed {
 		const myGen = ++this.fetchGen;
 		this.pending = [];
 		this.inFlight = true;
-		this.entries = null;
-		this.error = null;
+		// Only show the loading state (and clear a prior error) on the first load.
+		// A resync-driven reload keeps the already-shown entries on screen until
+		// the refetch resolves — no blank "Loading…" flash — and a transient
+		// failure retains the stale feed instead of wiping it to an error.
+		if (this.entries === null) this.error = null;
 		this.config
 			.fetch()
 			.then((page) => {
@@ -74,11 +77,14 @@ export class LiveFeed {
 				}
 				this.pending = [];
 				this.entries = merged;
+				this.error = null;
 				this.inFlight = false;
 			})
 			.catch((e) => {
 				if (myGen !== this.fetchGen) return;
-				this.error = errMsg(e);
+				// Keep stale entries visible on a failed reload; only surface the
+				// error when there's nothing else to show.
+				if (this.entries === null) this.error = errMsg(e);
 				this.inFlight = false;
 			});
 	}

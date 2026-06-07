@@ -82,14 +82,21 @@ func (h *ItemsHandler) HydrateItemForSSE(ctx context.Context, item *data.Item) (
 	if h.store == nil {
 		return resp, nil
 	}
+	// Attachments are best-effort: a query/signing failure degrades to an empty
+	// list rather than failing the whole event. Returning an error here would
+	// make Build fall back to the bare data.Item — which has no `attachments`
+	// field and crashes the front-end's Item consumers / wrongly evicts on the
+	// tags page. A degraded (attachments-less) item is strictly better.
 	list, err := data.ListAttachmentsForItem(ctx, h.db, item.ID)
 	if err != nil {
-		return resp, err
+		log.Printf("sse hydrate attachments %s: %v", item.ID, err)
+		return resp, nil
 	}
 	if len(list) > 0 {
 		signed, err := SignAttachments(ctx, h.store, list)
 		if err != nil {
-			return resp, err
+			log.Printf("sse sign attachments %s: %v", item.ID, err)
+			return resp, nil
 		}
 		resp.Attachments = signed
 	}

@@ -24,8 +24,8 @@ export type ItemDeletedPayload = { id: string; seq: number; project_id: string }
 
 export type RealtimeEvent =
 	| { type: 'activity.added'; activity: Activity; cursor: string }
-	| { type: 'item.changed'; item: Item; cursor: string }
-	| { type: 'item.deleted'; payload: ItemDeletedPayload; cursor: string }
+	| { type: 'item.changed'; item: Item; actorId?: string | null; cursor: string }
+	| { type: 'item.deleted'; payload: ItemDeletedPayload; actorId?: string | null; cursor: string }
 	| { type: 'project.changed'; project: Project; cursor: string }
 	| { type: 'resync'; cursor: '' };
 
@@ -176,10 +176,10 @@ export function applyProjectEvent(
 // `deleted-elsewhere` for cross-actor deletes — we don't quietly yank the
 // item out from under a reader (clean or dirty), per the locked policy.
 //
-// `isOwn` short-circuits both: when the event is the user's own echo
-// (detected via activity.added's actor_id, exposed by realtime.svelte's
-// isOwnEvent), the change applies silently and no banner is raised. This is
-// the "actor's own echoed event is an idempotent no-op" rule from the spec.
+// `isOwn` short-circuits both: when the event is the user's own echo (the
+// caller computes this by comparing the event's actor_id to the current user
+// id), the change applies silently and no banner is raised. This is the
+// "actor's own echoed event is an idempotent no-op" rule from the spec.
 
 export type EditorAffordance = 'none' | 'updated-elsewhere' | 'deleted-elsewhere';
 

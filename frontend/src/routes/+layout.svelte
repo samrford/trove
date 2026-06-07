@@ -15,9 +15,13 @@
 	});
 
 	// One long-lived SSE connection per signed-in user; teardown on sign-out.
-	// Token rotation is handled internally by the store.
+	// Keyed on the user *id* (a stable primitive) rather than auth.user — the
+	// latter is reassigned to a fresh object on every token refresh, which would
+	// otherwise tear down + re-handshake the stream ~hourly (and race the store's
+	// own TOKEN_REFRESHED restart). Token rotation is handled inside the store.
+	const userId = $derived(auth.user?.id ?? null);
 	$effect(() => {
-		if (auth.user) realtime.start();
+		if (userId) realtime.start();
 		else realtime.stop();
 		return () => realtime.stop();
 	});

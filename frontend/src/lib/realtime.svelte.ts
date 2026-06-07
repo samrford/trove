@@ -14,7 +14,6 @@
 import { fetchEventSource, type EventSourceMessage } from '@microsoft/fetch-event-source';
 
 import { supabase } from './supabase';
-import { auth } from './auth.svelte';
 import { API_BASE_URL, getAccessToken } from './api';
 import type { RealtimeEvent } from './realtime';
 import type { Activity } from './activity';
@@ -28,6 +27,11 @@ type TypedListener<T extends RealtimeEvent['type']> = (
 	e: Extract<RealtimeEvent, { type: T }>
 ) => void;
 
+// Thrown from onopen on an auth failure (401/403) to stop fetch-event-source's
+// retry loop — retrying would just reuse the same dead token. A token refresh is
+// kicked off in parallel; its TOKEN_REFRESHED restarts the stream cleanly.
+class FatalError extends Error {}
+
 class RealtimeStore {
 	status = $state<Status>('idle');
 
@@ -36,23 +40,10 @@ class RealtimeStore {
 	private currentToken: string | null = null;
 	private authSub: { unsubscribe: () => void } | null = null;
 
-	// Cursors of recent events the current user originated, populated via
-	// activity.added (which carries actor_id). Surfaces check this via
-	// isOwnEvent(cursor) so a user's own echo never raises the
-	// "updated/deleted elsewhere" affordance on themselves — only true
-	// cross-actor changes do. See the locked policy: "the actor's own echoed
-	// event is an idempotent no-op."
-	private readonly myCursors = new Set<string>();
-	// Window long enough to survive any SSE/listener delay between
-	// activity.added arriving and the surface's item.changed handler firing —
-	// in practice they fire back-to-back in the same dispatch loop, so 30s is
-	// pure safety margin against weird tab-throttling.
-	private static readonly OWN_CURSOR_TTL_MS = 30_000;
-
 	constructor() {
 		// Token rotation — re-handshake so future fetch-event-source reconnects
 		// don't 401 with a stale token. (SIGNED_IN/SIGNED_OUT are driven by the
-		// +layout.svelte $effect on auth.user, not here.)
+		// +layout.svelte $effect on the user id, not here.)
 		const { data } = supabase.auth.onAuthStateChange((event, session) => {
 			if (event !== 'TOKEN_REFRESHED') return;
 			const token = session?.access_token ?? null;
@@ -63,24 +54,6 @@ class RealtimeStore {
 			});
 		});
 		this.authSub = data.subscription;
-
-		// Internal subscription, registered before any surface mounts (Set
-		// iteration is insertion-order, so this fires first). SSE delivers
-		// activity.added strictly before its companion item.changed, so by the
-		// time a surface's item.changed listener checks isOwnEvent(cursor),
-		// the cursor is already in the set.
-		this.on('activity.added', (ev) => {
-			if (ev.activity.actor_id !== auth.user?.id) return;
-			this.myCursors.add(ev.cursor);
-			setTimeout(() => this.myCursors.delete(ev.cursor), RealtimeStore.OWN_CURSOR_TTL_MS);
-		});
-	}
-
-	// True if `cursor` belongs to an event the current user originated. Used
-	// by editor surfaces to skip the "updated elsewhere" affordance on their
-	// own echoes.
-	isOwnEvent(cursor: string): boolean {
-		return this.myCursors.has(cursor);
 	}
 
 	// Tear down the auth subscription. Unused in production (the singleton lives
@@ -143,13 +116,29 @@ class RealtimeStore {
 				// to a stale UI while a fresh connect catches up.
 				openWhenHidden: true,
 				onopen: async (res) => {
-					if (!res.ok) throw new Error(`SSE open ${res.status}`);
-					this.status = 'connected';
+					if (res.ok) {
+						this.status = 'connected';
+						return;
+					}
+					if (res.status === 401 || res.status === 403) {
+						// Stale/invalid token. fetch-event-source would otherwise
+						// retry forever reusing this same dead token, so force a
+						// refresh (fires TOKEN_REFRESHED → restart with a fresh
+						// token) and stop this attempt with a fatal error.
+						void supabase.auth.refreshSession();
+						throw new FatalError(`SSE auth ${res.status}`);
+					}
+					// Transient (e.g. 5xx) — let the lib retry on its own backoff.
+					throw new Error(`SSE open ${res.status}`);
 				},
 				onmessage: (msg) => this.dispatch(msg),
-				onerror: () => {
+				onerror: (err) => {
+					if (err instanceof FatalError) {
+						this.status = 'error';
+						throw err; // stop the retry loop; the token refresh restarts us
+					}
 					// Return nothing → fetch-event-source retries on its own backoff.
-					// Throwing here would stop retries; we want it to keep trying.
+					// Throwing (other than FatalError) would stop retries.
 					this.status = 'reconnecting';
 				},
 				onclose: () => {
@@ -172,10 +161,22 @@ class RealtimeStore {
 					event = { type: 'activity.added', activity: data as Activity, cursor };
 					break;
 				case 'item.changed':
-					event = { type: 'item.changed', item: data as Item, cursor };
+					// Wire shape is { item, actor_id } so the actor rides with the
+					// event (own-echo suppression compares it to the current user).
+					event = {
+						type: 'item.changed',
+						item: data.item as Item,
+						actorId: data.actor_id ?? null,
+						cursor
+					};
 					break;
 				case 'item.deleted':
-					event = { type: 'item.deleted', payload: data, cursor };
+					event = {
+						type: 'item.deleted',
+						payload: data,
+						actorId: data?.actor_id ?? null,
+						cursor
+					};
 					break;
 				case 'project.changed':
 					event = { type: 'project.changed', project: data as Project, cursor };

@@ -262,8 +262,12 @@ func TestHubItemChangedHydrator(t *testing.T) {
 		})
 
 		payload := waitForItemChanged(t, conn, 3*time.Second)
-		if _, ok := payload["attachments"]; ok {
+		itemPayload, _ := payload["item"].(map[string]any)
+		if _, ok := itemPayload["attachments"]; ok {
 			t.Fatalf("bare data.Item should not have attachments — hydrator missing test guard? got: %v", payload)
+		}
+		if payload["actor_id"] != user {
+			t.Fatalf("item.changed missing actor_id: got %v", payload["actor_id"])
 		}
 	})
 
@@ -303,11 +307,15 @@ func TestHubItemChangedHydrator(t *testing.T) {
 		})
 
 		payload := waitForItemChanged(t, conn, 3*time.Second)
-		if payload["_hydrated"] != true {
+		itemPayload, _ := payload["item"].(map[string]any)
+		if itemPayload["_hydrated"] != true {
 			t.Fatalf("hydrator output did not reach the wire: %v", payload)
 		}
-		if _, ok := payload["attachments"]; !ok {
+		if _, ok := itemPayload["attachments"]; !ok {
 			t.Fatalf("hydrated payload missing attachments: %v", payload)
+		}
+		if payload["actor_id"] != user {
+			t.Fatalf("item.changed missing actor_id: got %v", payload["actor_id"])
 		}
 	})
 }
