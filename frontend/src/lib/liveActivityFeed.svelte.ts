@@ -16,6 +16,7 @@
 // Components own SSE subscription (so they can branch on open/closed, gate
 // newCount, etc.) and call `load()`/`ingest()`/`invalidate()` directly.
 
+import { untrack } from 'svelte';
 import { applyActivityFeed } from './realtime';
 import { matchesFilter, type Activity } from './activity';
 import { errMsg } from './api';
@@ -60,7 +61,10 @@ export class LiveFeed {
 		// A resync-driven reload keeps the already-shown entries on screen until
 		// the refetch resolves — no blank "Loading…" flash — and a transient
 		// failure retains the stale feed instead of wiping it to an error.
-		if (this.entries === null) this.error = null;
+		// `untrack` is load-bearing: surfaces call load() from inside an $effect,
+		// so a tracked read of `entries` here would loop forever (the .then
+		// writes entries → effect retriggers → load() → reads entries → …).
+		if (untrack(() => this.entries) === null) this.error = null;
 		this.config
 			.fetch()
 			.then((page) => {
